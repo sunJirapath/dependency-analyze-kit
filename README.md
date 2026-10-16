@@ -1,5 +1,7 @@
 # dependency-analyze-kit
 
+[![build](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml/badge.svg)](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml)
+
 A Maven plugin that finds unused dependencies in Spring Boot projects, without the false positives of
 `mvn dependency:analyze`.
 
@@ -87,7 +89,8 @@ the jar is on the classpath.
   once per profile; merging results across runs is not supported. Lazy and prototype beans that no test created
   have no dependency edges.
 - **Shared artifacts count for nobody.** If two declared starters both bring `spring-boot`, a reference to
-  `SpringApplication` credits neither. An explicitly declared `spring-boot-starter` next to another starter is
+  `SpringApplication` credits neither. A test-scope dependency never makes a jar shared for a main-scope one (it
+  can't replace it), so `spring-boot-starter-test` doesn't hide `spring-boot-starter`. An explicitly declared `spring-boot-starter` next to another starter is
   therefore often a candidate. That is accurate for compilation, but removing it can change logging. Use
   `ignored` if you want to keep it.
 - **Not supported:** Gradle, auto-removal of dependencies, fat-jar (`jar:nested:`) class locations.

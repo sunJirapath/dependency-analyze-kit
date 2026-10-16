@@ -1,0 +1,36 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, java: '17' }
+          - { os: ubuntu-latest, java: '21' }
+          - { os: windows-latest, java: '21' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      # The ITs resolve Spring Boot into an isolated repository; keep it between runs.
+      - uses: actions/cache@v6
+        with:
+          path: dependency-analyze-kit-maven-plugin/target/local-repo
+          key: it-repo-${{ runner.os }}-${{ hashFiles('dependency-analyze-kit-maven-plugin/src/it/**/pom.xml') }}
+          restore-keys: it-repo-${{ runner.os }}-
+      - run: mvn -B -ntp verify
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: it-logs-${{ matrix.os }}-java${{ matrix.java }}
+          path: dependency-analyze-kit-maven-plugin/target/it/**/build.log

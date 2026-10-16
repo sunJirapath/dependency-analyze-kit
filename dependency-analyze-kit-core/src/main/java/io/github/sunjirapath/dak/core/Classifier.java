@@ -76,15 +76,24 @@ public final class Classifier {
     /**
      * Maps every artifact to its owning declared dependency.
      *
-     * @param closures each declared dependency to its transitive closure
+     * <p>A test-scope dependency cannot replace a main-scope one, so its claim on an artifact only counts when no
+     * main-scope dependency claims it too. Otherwise {@code spring-boot-starter-test}, which pulls in
+     * {@code spring-boot-starter}, would make every Boot jar shared.
+     *
+     * @param closures   each declared dependency to its transitive closure
+     * @param testScoped the declared dependencies with test scope
      */
-    public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures) {
+    public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures,
+                                                     Set<ArtifactId> testScoped) {
         Map<ArtifactId, Set<ArtifactId>> claimedBy = new HashMap<>();
         closures.forEach((d, c) -> c.forEach(a -> claimedBy.computeIfAbsent(a, k -> new HashSet<>()).add(d)));
         Map<ArtifactId, ArtifactId> owner = new HashMap<>();
         claimedBy.forEach((a, ds) -> {
-            if (ds.size() == 1) {
-                owner.put(a, ds.iterator().next());
+            Set<ArtifactId> main = new HashSet<>(ds);
+            main.removeAll(testScoped);
+            Set<ArtifactId> claims = main.isEmpty() ? ds : main;
+            if (claims.size() == 1) {
+                owner.put(a, claims.iterator().next());
             }
         });
         closures.keySet().forEach(d -> owner.put(d, d)); // a declared dependency always owns its own jar

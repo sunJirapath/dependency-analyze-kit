@@ -35,7 +35,7 @@ class ClassifierTest {
             REDIS, Set.of(DATA_REDIS, BOOT, AUTOCONFIGURE),
             LANG3, Set.of(),
             H2, Set.of(),
-            ACTUATOR, Set.of(ACTUATOR_AC, BOOT, AUTOCONFIGURE)));
+            ACTUATOR, Set.of(ACTUATOR_AC, BOOT, AUTOCONFIGURE)), Set.of());
 
     static final List<Declared> DECLARED = List.of(
             new Declared(WEB, "compile"), new Declared(REDIS, "compile"), new Declared(LANG3, "compile"),
@@ -53,8 +53,20 @@ class ClassifierTest {
 
     @Test
     void declaredDependencyOwnsItsJarEvenWhenAlsoTransitive() {
-        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(WEB, Set.of(LANG3), LANG3, Set.of()));
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(WEB, Set.of(LANG3), LANG3, Set.of()), Set.of());
         assertEquals(LANG3, owners.get(LANG3));
+    }
+
+    @Test
+    void testScopeClaimsDoNotShareMainScopeJars() {
+        ArtifactId starter = id("org.springframework.boot:spring-boot-starter");
+        ArtifactId starterTest = id("org.springframework.boot:spring-boot-starter-test");
+        ArtifactId springTest = id("org.springframework:spring-test");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                starter, Set.of(BOOT, AUTOCONFIGURE),
+                starterTest, Set.of(starter, BOOT, AUTOCONFIGURE, springTest)), Set.of(starterTest));
+        assertEquals(starter, owners.get(BOOT));
+        assertEquals(starterTest, owners.get(springTest));
     }
 
     @Test
