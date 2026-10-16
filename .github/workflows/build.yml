@@ -45,3 +45,16 @@ jobs:
         with:
           name: it-logs-${{ matrix.os }}-java${{ matrix.java }}${{ matrix.maven4 && '-maven4' || '' }}
           path: dependency-analyze-kit-maven-plugin/target/it/**/build.log
+
+  # Builds sources and javadoc jars the way a release does, without signing or uploading.
+  release-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: mvn -B -ntp -Prelease -Dgpg.skip -DskipTests -Dinvoker.skip=true verify
+      - run: ls */target/*-sources.jar */target/*-javadoc.jar

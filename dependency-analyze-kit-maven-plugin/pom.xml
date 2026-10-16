@@ -13,6 +13,7 @@
   <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
   <packaging>maven-plugin</packaging>
   <name>dependency-analyze-kit maven-plugin</name>
+  <description>Goal "analyze": joins bytecode analysis, the dependency graph and spring-probe reports into one verdict per declared dependency.</description>
 
   <prerequisites>
     <maven>3.9.0</maven>

@@ -293,6 +293,25 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 The first run fills an isolated repository under `target/local-repo`, which can take several minutes.
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
-License: Apache-2.0.
+## Releasing
+
+Releases go to Maven Central through the Central Portal with
+[`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+One-time setup (repository secrets):
+
+| Secret | Value |
+|---|---|
+| `CENTRAL_USERNAME`, `CENTRAL_TOKEN` | A user token from https://central.sonatype.com/account (the namespace `io.github.sunjirapath` must be verified). |
+| `GPG_PRIVATE_KEY` | `gpg --armor --export-secret-keys <KEY_ID>` of a key whose public part is on `keyserver.ubuntu.com`. |
+| `GPG_PASSPHRASE` | That key's passphrase. |
+
+To release, push a tag such as `v0.1.0`. The workflow sets that version, runs the full build, signs the
+artifacts and uploads them. The deployment then waits at https://central.sonatype.com/publishing until you
+press **Publish**. A published version can never be changed or deleted.
+
+Every push also runs a `release-dry-run` CI job that builds the sources and javadoc jars without signing.
+
+License: [Apache-2.0](LICENSE).
 
 [MDEP-557]: https://issues.apache.org/jira/browse/MDEP-557

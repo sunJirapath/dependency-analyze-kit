@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+         child.project.url.inherit.append.path="false">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.github.sunjirapath</groupId>
@@ -11,6 +12,7 @@
 
   <name>dependency-analyze-kit</name>
   <description>Finds unused dependencies in Spring Boot projects by joining bytecode analysis with Spring's condition evaluation report.</description>
+  <url>https://github.com/sunJirapath/dependency-analyze-kit</url>
 
   <licenses>
     <license>
@@ -18,6 +20,23 @@
       <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
     </license>
   </licenses>
+
+  <developers>
+    <developer>
+      <id>sunjirapath</id>
+      <name>sunJirapath</name>
+      <url>https://github.com/sunJirapath</url>
+    </developer>
+  </developers>
+
+  <scm child.scm.connection.inherit.append.path="false"
+       child.scm.developerConnection.inherit.append.path="false"
+       child.scm.url.inherit.append.path="false">
+    <connection>scm:git:https://github.com/sunJirapath/dependency-analyze-kit.git</connection>
+    <developerConnection>scm:git:https://github.com/sunJirapath/dependency-analyze-kit.git</developerConnection>
+    <url>https://github.com/sunJirapath/dependency-analyze-kit</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <modules>
     <module>dependency-analyze-kit-core</module>
@@ -76,4 +95,58 @@
       </plugins>
     </pluginManagement>
   </build>
+
+  <profiles>
+    <!-- mvn -Prelease deploy: sources, javadoc, GPG signatures, upload to the Central Portal.
+         Needs a "central" server (Portal user token) in settings.xml and a GPG key; see .github/workflows/release.yml. -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.4.0</version>
+            <executions>
+              <execution>
+                <goals><goal>jar-no-fork</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.12.0</version>
+            <configuration>
+              <doclint>all,-missing</doclint>
+            </configuration>
+            <executions>
+              <execution>
+                <goals><goal>jar</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.8</version>
+            <executions>
+              <execution>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.12.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <!-- upload and validate only; press "Publish" in the Portal (a release can never be deleted) -->
+              <autoPublish>false</autoPublish>
+              <waitUntil>validated</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
