@@ -1,6 +1,7 @@
 # dependency-analyze-kit
 
 [![build](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml/badge.svg)](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)](https://central.sonatype.com/artifact/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)
 
 A Maven plugin that finds unused dependencies in Spring Boot projects, without the false positives of
 `mvn dependency:analyze`.
@@ -21,19 +22,9 @@ Background and design decisions: [docs/research.md](docs/research.md).
 
 Requirements: Java 17+, Maven 3.9+, Spring Boot 3.x or 4.x, and at least one `@SpringBootTest`.
 
-### 1. Install the plugin locally
+Both artifacts are on Maven Central under `io.github.sunjirapath`.
 
-It isn't on Maven Central yet, so build it from source once:
-
-```bash
-git clone https://github.com/sunJirapath/dependency-analyze-kit.git
-```
-
-```bash
-mvn -f dependency-analyze-kit install -DskipTests -Dinvoker.skip=true
-```
-
-### 2. Add the probe and the plugin to your Spring Boot project
+### 1. Add the probe and the plugin to your Spring Boot project
 
 ```xml
 <dependencies>
@@ -41,7 +32,7 @@ mvn -f dependency-analyze-kit install -DskipTests -Dinvoker.skip=true
   <dependency>
     <groupId>io.github.sunjirapath</groupId>
     <artifactId>dependency-analyze-kit-spring-probe</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <scope>test</scope>
   </dependency>
 </dependencies>
@@ -51,7 +42,7 @@ mvn -f dependency-analyze-kit install -DskipTests -Dinvoker.skip=true
     <plugin>
       <groupId>io.github.sunjirapath</groupId>
       <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.1.0</version>
       <executions>
         <execution>
           <goals><goal>analyze</goal></goals>   <!-- runs in the verify phase -->
@@ -62,7 +53,7 @@ mvn -f dependency-analyze-kit install -DskipTests -Dinvoker.skip=true
 </build>
 ```
 
-### 3. Run the build with the probe switched on
+### 2. Run the build with the probe switched on
 
 ```bash
 mvn verify -Ddak.enabled=true
@@ -76,7 +67,7 @@ JVM. With the property set, every Spring context the tests start writes
 Without `-Ddak.enabled=true` the goal still runs, but with bytecode evidence only. Everything else comes out
 `UNKNOWN`; nothing is ever called unused.
 
-### 4. Read the result
+### 3. Read the result
 
 This is real output from the [`web-redis-unused`](dependency-analyze-kit-maven-plugin/src/it/web-redis-unused) sample:
 a web app that also declares Redis and commons-lang3 but never uses them.
@@ -227,7 +218,7 @@ Sibling modules that the app references are credited like any other dependency
 <plugin>
   <groupId>io.github.sunjirapath</groupId>
   <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <executions>
     <execution>
       <goals><goal>analyze</goal></goals>
@@ -275,6 +266,9 @@ Sibling modules that the app references are credited like any other dependency
 ```bash
 mvn verify
 ```
+
+To try an unreleased snapshot of `main` in your own project, install it locally with
+`mvn install -DskipTests -Dinvoker.skip=true` and use version `0.2.0-SNAPSHOT`.
 
 This runs the unit tests and the maven-invoker integration tests in `dependency-analyze-kit-maven-plugin/src/it`.
 The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
