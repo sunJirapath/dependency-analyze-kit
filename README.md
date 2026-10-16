@@ -89,12 +89,17 @@ the jar is on the classpath.
   once per profile; merging results across runs is not supported. Lazy and prototype beans that no test created
   have no dependency edges.
 - **Shared artifacts count for nobody.** If two declared starters both bring `spring-boot`, a reference to
-  `SpringApplication` credits neither. A test-scope dependency never makes a jar shared for a main-scope one (it
-  can't replace it), so `spring-boot-starter-test` doesn't hide `spring-boot-starter`. An explicitly declared `spring-boot-starter` next to another starter is
+  `SpringApplication` credits neither. An explicitly declared `spring-boot-starter` next to another starter is
   therefore often a candidate. That is accurate for compilation, but removing it can change logging. Use
   `ignored` if you want to keep it.
+  A test-scope dependency never makes a jar shared for a main-scope one, because it can't replace it. So
+  `spring-boot-starter-test` doesn't hide `spring-boot-starter`.
+- **Dependencies are identified by `groupId:artifactId`.** A dependency declared twice with different classifiers
+  (e.g. a module and its `test-jar`) is analyzed as one.
+- **Maven 4** is exercised in CI but doesn't block the build until it reaches GA.
 - **Not supported:** Gradle, auto-removal of dependencies, fat-jar (`jar:nested:`) class locations.
-  The probe is meant for the test classpath.
+  The probe is meant for the test classpath. There's no `mvn dependency:analyze -Danalyzer=…` adapter yet.
+  Its result format can't carry verdicts or evidence; it can be added on request.
 
 ## Build
 
@@ -102,9 +107,22 @@ the jar is on the classpath.
 mvn verify
 ```
 
-This runs the unit tests and the maven-invoker integration tests in `dependency-analyze-kit-maven-plugin/src/it`
-(Boot 3.5.16 and one on Boot 4.1.1). The first run fills an isolated repository under `target/local-repo`, which
-can take several minutes.
+This runs the unit tests and the maven-invoker integration tests in `dependency-analyze-kit-maven-plugin/src/it`.
+The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
+
+| IT | Checks |
+|---|---|
+| `web-redis-unused`, `web-redis-unused-boot4` | Unused redis starter and commons-lang3 are candidates; the web starter is used. |
+| `jpa-h2` | data-jpa is used (the JPA auto-config appears in its evidence); h2 is ignored. |
+| `jdbc-actuator` | `USED_BEAN` via an injected `DataSource`; actuator is `USED_AUTOCONFIG`. |
+| `conditional-property` | The evidence names the unmet `@ConditionalOnProperty`. |
+| `slice-only` | With only `@WebMvcTest` contexts, the result is `UNKNOWN`, never unused. |
+| `no-probe` | Without probe reports, everything without bytecode evidence is `UNKNOWN`. |
+| `fail-on-unused` | `failOnUnused` and `ignored`. |
+| `multi-module` | A reactor sibling dependency. |
+
+The first run fills an isolated repository under `target/local-repo`, which can take several minutes.
+CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
 License: Apache-2.0.
 

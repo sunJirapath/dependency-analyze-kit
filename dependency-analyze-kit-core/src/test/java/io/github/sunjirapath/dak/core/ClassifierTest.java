@@ -84,11 +84,21 @@ class ClassifierTest {
         assertEquals(Verdict.USED_BYTECODE, r.get(WEB).verdict());
         assertTrue(r.get(WEB).summary().contains("RestController"));
         assertEquals(Verdict.UNUSED_CANDIDATE, r.get(REDIS).verdict());
-        assertEquals("o.s.b.a.data.redis.RedisAutoConfiguration matched, but no project class or bean uses it",
-                r.get(REDIS).summary());
+        assertEquals("RedisAutoConfiguration matched, but no project class or bean uses it", r.get(REDIS).summary());
         assertEquals(1, r.get(REDIS).evidence().size(), "bean-method outcomes are skipped");
         assertEquals(Verdict.UNUSED_CANDIDATE, r.get(LANG3).verdict());
         assertEquals(Verdict.IGNORED, r.get(H2).verdict());
+    }
+
+    @Test
+    void unusedSummaryNamesTheAutoConfigsThatBelongToTheDependencyFirst() {
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(
+                ac("o.s.b.a.data.web.DataWebAutoConfiguration", true, DATA_REDIS),
+                ac("o.s.b.a.cache.CacheAutoConfiguration", true, DATA_REDIS),
+                ac("o.s.b.a.data.redis.RedisAnnotationDrivenConfiguration$EnableRedisRepositories", true, DATA_REDIS),
+                ac("o.s.b.a.data.redis.RedisAutoConfiguration", true, DATA_REDIS)), List.of());
+        assertEquals("4 auto-configurations matched (RedisAutoConfiguration, RedisAnnotationDrivenConfiguration, ...), "
+                + "but no project class or bean uses them", run(Map.of(), probe).get(REDIS).summary());
     }
 
     @Test

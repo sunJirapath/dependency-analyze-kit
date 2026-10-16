@@ -3,13 +3,16 @@ package io.github.sunjirapath.dak.core;
 import io.github.sunjirapath.dak.core.Evidence.Kind;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -41,6 +44,9 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-starter-mustache",
             "org.springframework.boot:spring-boot-starter-groovy-templates",
             "org.springframework.boot:spring-boot-starter-web-services");
+
+    /** artifactId words that say nothing about which auto-configuration belongs to a dependency. */
+    private static final Set<String> GENERIC_WORDS = Set.of("spring", "boot", "starter", "data", "autoconfigure");
 
     static {
         String jdbc = "JDBC driver, loaded through ServiceLoader";
@@ -152,7 +158,7 @@ public final class Classifier {
                 summary = "only slice-test contexts observed; add a @SpringBootTest";
             } else {
                 verdict = Verdict.UNUSED_CANDIDATE;
-                summary = matched != null ? matched.detail() + ", but no project class or bean uses it"
+                summary = matched != null ? matchedButUnused(ev, d.id())
                         : unmatched != null ? unmatched.detail()
                         : "no bytecode reference, bean or auto-configuration";
             }
@@ -207,6 +213,29 @@ public final class Classifier {
                                Set<ArtifactId> artifacts, Evidence evidence) {
         artifacts.stream().map(owner::get).filter(Objects::nonNull).distinct()
                 .forEach(o -> found.computeIfAbsent(o, k -> new LinkedHashSet<>()).add(evidence));
+    }
+
+    /**
+     * "RedisAutoConfiguration matched, but ..." — names the auto-configurations that look like they belong to the
+     * dependency first (simple name contains a word of its artifactId), so the line isn't an arbitrary pick.
+     */
+    private static String matchedButUnused(List<Evidence> ev, ArtifactId id) {
+        List<String> words = Arrays.stream(id.artifactId().toLowerCase(Locale.ROOT).split("-"))
+                .filter(w -> w.length() > 2 && !GENERIC_WORDS.contains(w)).toList();
+        List<String> names = ev.stream().filter(e -> e.kind() == Kind.AUTOCONFIG_MATCHED)
+                .map(e -> e.detail().substring(e.detail().lastIndexOf('.', e.detail().indexOf(' ')) + 1,
+                        e.detail().length() - " matched".length()))
+                .map(n -> n.contains("$") ? n.substring(0, n.indexOf('$')) : n) // nested -> top-level class
+                .distinct()
+                .sorted(Comparator.comparing((String n) -> words.stream()
+                                .noneMatch(n.toLowerCase(Locale.ROOT)::contains))
+                        .thenComparingInt(String::length)
+                        .thenComparing(n -> n))
+                .toList();
+        String shown = String.join(", ", names.subList(0, Math.min(2, names.size())))
+                + (names.size() > 2 ? ", ..." : "");
+        return names.size() == 1 ? shown + " matched, but no project class or bean uses it"
+                : names.size() + " auto-configurations matched (" + shown + "), but no project class or bean uses them";
     }
 
     private static Evidence first(List<Evidence> ev, Kind kind) {
