@@ -1,7 +1,10 @@
-# dependency-analyze-kit
+# dependency-analyze-kit — unused Spring Boot dependencies, without the false positives
 
-[![build](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml/badge.svg)](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml)
+[![CI](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml/badge.svg)](https://github.com/sunJirapath/dependency-analyze-kit/actions/workflows/build.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)](https://central.sonatype.com/artifact/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)
+[![License](https://img.shields.io/github/license/sunJirapath/dependency-analyze-kit)](LICENSE)
+[![Java 17+ / Maven 3.9+](https://img.shields.io/badge/Java%2017%2B-Maven%203.9%2B-blue)](#install)
+[![Spring Boot 3 / 4](https://img.shields.io/badge/Spring%20Boot-3%20%2F%204-green)](#install)
 
 A Maven plugin that finds unused dependencies in Spring Boot projects, without the false positives of
 `mvn dependency:analyze`.
@@ -16,15 +19,21 @@ This plugin joins three sources:
 3. **Runtime evidence from Spring** collected while your tests run: the condition evaluation report (matched and
    unmatched auto-configurations) and the bean graph (which beans your own beans depend on).
 
-Background and design decisions: [docs/research.md](docs/research.md).
+Background and design decisions: [docs/research.md](docs/research.md). ตรวจหา dependency ที่ไม่ได้ใช้ใน Spring Boot.
 
-## Quick start
+[English](#english) · [ภาษาไทย](#ภาษาไทย)
 
-Requirements: Java 17+, Maven 3.9+, Spring Boot 3.x or 4.x, and at least one `@SpringBootTest`.
+## English
 
-Both artifacts are on Maven Central under `io.github.sunjirapath`.
+### Install
 
-### 1. Add the probe and the plugin to your Spring Boot project
+Latest version: **0.1.0**, available on Maven Central. Group `io.github.sunjirapath`, artifacts
+`dependency-analyze-kit-maven-plugin` and `dependency-analyze-kit-spring-probe`.
+
+**Supported:** Java 17+, Maven 3.9+ (CI also runs Maven 4.0.0-rc-7), Spring Boot 3.x and 4.x. CI runs on Linux
+(Java 17 and 21), Windows and macOS. Your tests need at least one `@SpringBootTest`.
+
+Add the probe and the plugin to your Spring Boot project:
 
 ```xml
 <dependencies>
@@ -53,7 +62,9 @@ Both artifacts are on Maven Central under `io.github.sunjirapath`.
 </build>
 ```
 
-### 2. Run the build with the probe switched on
+### Quick start
+
+#### 1. Run the build with the probe switched on
 
 ```bash
 mvn verify -Ddak.enabled=true
@@ -67,7 +78,7 @@ JVM. With the property set, every Spring context the tests start writes
 Without `-Ddak.enabled=true` the goal still runs, but with bytecode evidence only. Everything else comes out
 `UNKNOWN`; nothing is ever called unused.
 
-### 3. Read the result
+#### 2. Read the result
 
 This is real output from the [`web-redis-unused`](dependency-analyze-kit-maven-plugin/src/it/web-redis-unused) sample:
 a web app that also declares Redis and commons-lang3 but never uses them.
@@ -101,7 +112,7 @@ a web app that also declares Redis and commons-lang3 but never uses them.
 
 Evidence `kind` is one of `BYTECODE`, `BEAN`, `AUTOCONFIG_MATCHED`, `AUTOCONFIG_UNMATCHED` or `IGNORED`.
 
-## Verdicts
+### Verdicts
 
 | Verdict | Meaning | What to do |
 |---|---|---|
@@ -115,7 +126,7 @@ Evidence `kind` is one of `BYTECODE`, `BEAN`, `AUTOCONFIG_MATCHED`, `AUTOCONFIG_
 A matched auto-configuration on its own does **not** count as usage. `@ConditionalOnClass` matches simply because
 the jar is on the classpath.
 
-## Examples
+### Examples
 
 Every example below is one of the integration-test projects in
 [`dependency-analyze-kit-maven-plugin/src/it`](dependency-analyze-kit-maven-plugin/src/it). Each one is a complete
@@ -165,9 +176,9 @@ commons-io:commons-io                         UNUSED_CANDIDATE  no bytecode refe
 [ERROR] Failed to execute goal ...:analyze (default) on project fail-on-unused: 1 unused dependency candidate(s); see .../report.json
 ```
 
-## Recipes
+### Recipes
 
-### Fail CI on unused dependencies
+#### Fail CI on unused dependencies
 
 ```bash
 mvn verify -Ddak.enabled=true -Ddak.failOnUnused=true
@@ -175,7 +186,7 @@ mvn verify -Ddak.enabled=true -Ddak.failOnUnused=true
 
 Or set it permanently in the POM (see [Configuration](#configuration)).
 
-### Run once per profile
+#### Run once per profile
 
 Conditions depend on profiles and properties. Give each profile its own output directory, because the probe and
 the goal both read `dak.outputDirectory`:
@@ -186,7 +197,7 @@ mvn verify -Ddak.enabled=true -Pprod -Ddak.outputDirectory=target/dak-prod
 
 A dependency is only safe to remove if it is a candidate in every profile you ship.
 
-### Run the analysis without the verify phase
+#### Run the analysis without the verify phase
 
 The goal only reads probe files written **during the same Maven invocation**; older ones are treated as stale. Run
 the tests and the goal together:
@@ -197,13 +208,13 @@ mvn test dependency-analyze-kit:analyze -Ddak.enabled=true
 
 The `dependency-analyze-kit:` prefix resolves because the plugin is declared in your POM.
 
-### Multi-module projects
+#### Multi-module projects
 
 Add the probe and the plugin to each Spring Boot application module. Plain library modules don't need them.
 Sibling modules that the app references are credited like any other dependency
 ([`multi-module`](dependency-analyze-kit-maven-plugin/src/it/multi-module)).
 
-## Configuration
+### Configuration
 
 | Parameter | Default | |
 |---|---|---|
@@ -239,7 +250,7 @@ Sibling modules that the app references are credited like any other dependency
 </plugin>
 ```
 
-## Known gaps
+### Known gaps
 
 - **No class-loading or JFR tracing.** Usage through `ServiceLoader`/SPI, JDBC drivers, logging backends, reflection,
   or templates only (e.g. a Thymeleaf view) is invisible, so these can show up as false `UNUSED_CANDIDATE`s. The
@@ -261,14 +272,11 @@ Sibling modules that the app references are credited like any other dependency
   The probe is meant for the test classpath. There's no `mvn dependency:analyze -Danalyzer=…` adapter yet.
   Its result format can't carry verdicts or evidence; it can be added on request.
 
-## Build
+### Build and contribute
 
 ```bash
 mvn verify
 ```
-
-To try an unreleased snapshot of `main` in your own project, install it locally with
-`mvn install -DskipTests -Dinvoker.skip=true` and use version `0.2.0-SNAPSHOT`.
 
 This runs the unit tests and the maven-invoker integration tests in `dependency-analyze-kit-maven-plugin/src/it`.
 The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
@@ -287,7 +295,10 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 The first run fills an isolated repository under `target/local-repo`, which can take several minutes.
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
-## Releasing
+To try an unreleased snapshot of `main` in your own project, install it locally with
+`mvn install -DskipTests -Dinvoker.skip=true` and use version `0.2.0-SNAPSHOT`.
+
+#### Releasing
 
 Releases go to Maven Central through the Central Portal with
 [`.github/workflows/release.yml`](.github/workflows/release.yml).
@@ -306,6 +317,56 @@ press **Publish**. A published version can never be changed or deleted.
 
 Every push also runs a `release-dry-run` CI job that builds the sources and javadoc jars without signing.
 
-License: [Apache-2.0](LICENSE).
+### License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+## ภาษาไทย
+
+Maven plugin สำหรับหา dependency ที่ไม่ได้ใช้ในโปรเจกต์ Spring Boot โดยไม่เจอผลผิดแบบ `mvn dependency:analyze`
+ซึ่งดูแค่ bytecode จึงรายงาน starter ทุกตัวว่า "ไม่ได้ใช้" (starter เป็น jar เปล่า)
+ปลั๊กอินนี้รวมหลักฐาน 3 แหล่ง: bytecode, dependency graph (ตัดสิน starter จาก artifact ที่มันดึงเข้ามาแต่เพียงผู้เดียว)
+และหลักฐานจาก Spring ตอนรันเทสต์ (condition evaluation report และ bean graph)
+
+### ติดตั้ง
+
+เวอร์ชันล่าสุด **0.1.0** บน Maven Central: `io.github.sunjirapath:dependency-analyze-kit-maven-plugin:0.1.0`
+และ `io.github.sunjirapath:dependency-analyze-kit-spring-probe:0.1.0` (ใส่เป็น `test` scope) ดูตัวอย่าง XML ที่ [Install](#install)
+
+**รองรับ:** Java 17 ขึ้นไป, Maven 3.9 ขึ้นไป (ทดสอบ Maven 4.0.0-rc-7 ใน CI ด้วย), Spring Boot 3.x และ 4.x
+ต้องมี `@SpringBootTest` อย่างน้อยหนึ่งตัว
+
+### เริ่มต้นใช้งาน
+
+```bash
+mvn verify -Ddak.enabled=true
+```
+
+probe จะทำงานเฉพาะเมื่อใส่ `-Ddak.enabled=true` จากนั้น goal `analyze` จะพิมพ์ตารางผลลัพธ์และเขียน
+`target/dependency-analyze-kit/report.json` ถ้าต้องการให้ CI fail เมื่อเจอ dependency ที่ไม่ได้ใช้ ให้เพิ่ม `-Ddak.failOnUnused=true`
+
+### ผลลัพธ์
+
+| ผล | ความหมาย | ควรทำอะไร |
+|---|---|---|
+| `USED_BYTECODE` | โค้ดในโปรเจกต์อ้างถึง jar ของมัน หรือ jar ที่มันดึงเข้ามาแต่เพียงผู้เดียว | เก็บไว้ |
+| `USED_BEAN` | bean จากมันถูก inject เข้า bean ของโปรเจกต์ (ทางตรงหรือทางอ้อม) | เก็บไว้ |
+| `USED_AUTOCONFIG` | auto-config ของมัน match และเป็น starter ที่ทำงานด้วยตัวเอง (actuator, security, template engine ฯลฯ) | เก็บไว้ |
+| `UNUSED_CANDIDATE` | ไม่มีหลักฐานข้างบนเลย ใน test context เต็มอย่างน้อยหนึ่งตัว | ลองลบแล้วรันเทสต์ ถ้าพังตอนรันจริงให้ใส่ใน `ignored` |
+| `IGNORED` | อยู่ใน ignore list (เช่น JDBC driver, logging backend) | ไม่ต้องทำอะไร |
+| `UNKNOWN` | ไม่มี probe report หรือมีแค่ slice test | รันด้วย `-Ddak.enabled=true` และเพิ่ม `@SpringBootTest` |
+
+auto-config ที่ match อย่างเดียว **ไม่นับ** ว่าใช้ เพราะ `@ConditionalOnClass` จะ match ทันทีที่ jar อยู่บน classpath
+
+### ข้อจำกัดสำคัญ
+
+- มองไม่เห็นการใช้ผ่าน `ServiceLoader`/SPI, reflection หรือ template อย่างเดียว อาจได้ `UNUSED_CANDIDATE` ผิด ๆ
+  (JDBC driver และ logging backend อยู่ใน ignore list ให้แล้ว)
+- หลักฐานครอบคลุมเฉพาะสิ่งที่เทสต์รันถึง ผลขึ้นกับ profile และ property ให้รันแยกทีละ profile
+- artifact ที่ starter หลายตัวใช้ร่วมกันจะไม่นับให้ใครเลย รายละเอียดดู [Known gaps](#known-gaps)
+
+### สัญญาอนุญาต
+
+โปรเจกต์นี้อยู่ภายใต้ [Apache License 2.0](LICENSE)
 
 [MDEP-557]: https://issues.apache.org/jira/browse/MDEP-557
