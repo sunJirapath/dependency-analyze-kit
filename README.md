@@ -222,8 +222,14 @@ Sibling modules that the app references are credited like any other dependency
 | `ignored` | – | `groupId:artifactId` patterns, `*` wildcard. |
 | `sideEffectStarters` | – | Extra starters whose matched auto-configuration counts as usage. |
 | `includeTestScope` (`dak.includeTestScope`) | `false` | Also report test-scope dependencies. |
-| `outputDirectory` (`dak.outputDirectory`) | `target/dependency-analyze-kit` | Used by both the probe and the goal. |
+| `outputDirectory` (`dak.outputDirectory`) | `${project.build.directory}/dependency-analyze-kit` | Destination for `report.json`. `-Ddak.outputDirectory=...` overrides both probe and report directories. |
 | `skip` (`dak.skip`) | `false` | |
+
+The probe writes under `${basedir}/target/dependency-analyze-kit` by default. The goal reads from that
+same directory even if `<build><directory>` or the plugin's XML `<outputDirectory>` selects a different
+destination for `report.json`. To relocate both the runtime evidence and the final report, pass
+`-Ddak.outputDirectory=...`; Surefire forwards the property to the test JVM. No lifecycle or test-runner
+configuration change is needed for custom Maven build directories.
 
 ```xml
 <plugin>
@@ -288,6 +294,10 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 | `jdbc-actuator` | `USED_BEAN` via an injected `DataSource`; actuator is `USED_AUTOCONFIG`. |
 | `conditional-property` | The evidence names the unmet `@ConditionalOnProperty`. |
 | `slice-only` | With only `@WebMvcTest` contexts, the result is `UNKNOWN`, never unused. |
+| `unconditional-side-effect` | Unconditional auto-configurations count for configured side-effect starters. |
+| `nested-factory` | Factory products registered before their factories still contribute their injected dependencies. |
+| `parent-child` / `parent-child-shadow` | Child injection reaches parent beans, while local beans shadow same-named parent beans. |
+| `custom-build-directory` / `custom-output-directory` / `shared-output-directory` | Runtime evidence survives custom report/build locations and a shared system-property override; unused dependencies fail the build. |
 | `no-probe` | Without probe reports, everything without bytecode evidence is `UNKNOWN`. |
 | `fail-on-unused` | `failOnUnused` and `ignored`. |
 | `multi-module` | A reactor sibling dependency. |

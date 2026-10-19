@@ -69,9 +69,13 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "dak.includeTestScope", defaultValue = "false")
     private boolean includeTestScope;
 
-    /** Where the probe writes context-*.json and this goal writes report.json. */
+    /** Where this goal writes report.json. The system property overrides both probe and report directories. */
     @Parameter(property = "dak.outputDirectory", defaultValue = "${project.build.directory}/dependency-analyze-kit")
     private File outputDirectory;
+
+    /** Match the probe's default even when the Maven build or report directory is customized. */
+    @Parameter(property = "dak.outputDirectory", defaultValue = "${project.basedir}/target/dependency-analyze-kit")
+    private File probeDirectory;
 
     @Parameter(property = "dak.skip", defaultValue = "false")
     private boolean skip;
@@ -190,7 +194,7 @@ public class AnalyzeMojo extends AbstractMojo {
     /** Probe files from this build only: older ones belong to a previous run and may describe other code. */
     private List<ProbeReport> readProbes(Map<String, ArtifactId> locations) throws IOException {
         List<ProbeReport> probes = new ArrayList<>();
-        File[] files = outputDirectory.listFiles((dir, name) -> name.startsWith("context-") && name.endsWith(".json"));
+        File[] files = probeDirectory.listFiles((dir, name) -> name.startsWith("context-") && name.endsWith(".json"));
         long since = session.getStartTime().getTime();
         for (File f : files == null ? new File[0] : files) {
             if (f.lastModified() >= since) {

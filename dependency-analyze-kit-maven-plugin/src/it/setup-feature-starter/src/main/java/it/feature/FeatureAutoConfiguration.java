@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(name = "feature.enabled", havingValue = "true")
 public class FeatureAutoConfiguration {
     @Bean
-    FeatureService featureService() {
+    Runnable featureService() {
         return new FeatureService();
     }
 }
