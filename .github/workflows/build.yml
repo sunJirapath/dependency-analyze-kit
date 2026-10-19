@@ -33,6 +33,10 @@ jobs:
           path: dependency-analyze-kit-maven-plugin/target/local-repo
           key: it-repo-${{ runner.os }}-${{ hashFiles('dependency-analyze-kit-maven-plugin/src/it/**/pom.xml') }}
           restore-keys: it-repo-${{ runner.os }}-
+      # Self-hosted pc-builder image has no system Maven (hosted runners do).
+      - name: Set up Maven if missing
+        shell: bash
+        run: command -v mvn >/dev/null || { curl -fsSL --retry 3 https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz | tar xz -C "$RUNNER_TEMP" && echo "$RUNNER_TEMP/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"; }
       - if: matrix.maven4
         shell: bash
         run: |
@@ -56,5 +60,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      # Self-hosted pc-builder image has no system Maven (hosted runners do).
+      - name: Set up Maven if missing
+        shell: bash
+        run: command -v mvn >/dev/null || { curl -fsSL --retry 3 https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz | tar xz -C "$RUNNER_TEMP" && echo "$RUNNER_TEMP/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"; }
       - run: mvn -B -ntp -Prelease -Dgpg.skip -DskipTests -Dinvoker.skip=true verify
       - run: ls */target/*-sources.jar */target/*-javadoc.jar
