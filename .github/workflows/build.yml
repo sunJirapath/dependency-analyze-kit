@@ -18,7 +18,7 @@ jobs:
           # Maven 4 is still a release candidate: report, don't block.
           - { os: ubuntu-latest, java: '21', maven4: '4.0.0-rc-7' }
     name: verify (${{ matrix.os }}, java ${{ matrix.java }}${{ matrix.maven4 && ', maven 4' || '' }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && fromJSON('["self-hosted","pc-builder"]') || matrix.os }}
     continue-on-error: ${{ matrix.maven4 != '' && matrix.maven4 != null }}
     steps:
       - uses: actions/checkout@v7
@@ -48,7 +48,7 @@ jobs:
 
   # Builds sources and javadoc jars the way a release does, without signing or uploading.
   release-dry-run:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, pc-builder]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
