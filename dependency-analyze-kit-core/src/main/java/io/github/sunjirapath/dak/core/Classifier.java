@@ -16,7 +16,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Joins bytecode references and probe reports into one verdict per declared dependency.
@@ -128,8 +127,8 @@ public final class Classifier {
                         : new Evidence(Kind.AUTOCONFIG_UNMATCHED,
                                 ac.name() + " did not match: " + String.join("; ", ac.messages())));
             }
-            beanEvidence(probe, found, owner);
         }
+        beanEvidence(probes, found, owner);
 
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
@@ -176,37 +175,86 @@ public final class Classifier {
     }
 
     /** Credits beans reachable from a project bean through injection / depends-on edges. */
-    private static void beanEvidence(ProbeReport probe, Map<ArtifactId, Set<Evidence>> found,
+    private static void beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
                                      Map<ArtifactId, ArtifactId> owner) {
-        Map<String, ProbeReport.Bean> byName = probe.beans().stream()
-                .collect(Collectors.toMap(ProbeReport.Bean::name, b -> b, (a, b) -> a));
-        Set<String> roots = new HashSet<>();
-        probe.beans().stream().filter(b -> b.artifacts().contains(ArtifactId.PROJECT)).forEach(b -> roots.add(b.name()));
-        // beans declared by a project @Configuration are the project's own choices too
-        probe.beans().stream().filter(b -> roots.contains(b.factoryBean())).forEach(b -> roots.add(b.name()));
-
-        Map<String, String> reachedFrom = new LinkedHashMap<>();
-        Deque<String> queue = new ArrayDeque<>();
-        roots.forEach(r -> { reachedFrom.put(r, r); queue.add(r); });
-        while (!queue.isEmpty()) {
-            String name = queue.poll();
-            ProbeReport.Bean bean = byName.get(name);
-            if (bean == null) {
-                continue;
+        Map<String, List<Integer>> contextsByKey = new HashMap<>();
+        Map<BeanKey, ProbeReport.Bean> beans = new LinkedHashMap<>();
+        for (int i = 0; i < probes.size(); i++) {
+            ProbeReport probe = probes.get(i);
+            if (probe.contextKey() != null) {
+                contextsByKey.computeIfAbsent(probe.contextKey(), k -> new ArrayList<>()).add(i);
             }
-            for (String dep : bean.dependencies()) {
-                if (reachedFrom.putIfAbsent(dep, reachedFrom.get(name)) == null) {
-                    queue.add(dep);
+            int snapshot = i;
+            probe.beans().forEach(b -> beans.put(new BeanKey(snapshot, b.name()), b));
+        }
+        Set<BeanKey> roots = new LinkedHashSet<>();
+        Map<BeanKey, List<BeanKey>> products = new HashMap<>();
+        beans.forEach((key, bean) -> {
+            if (bean.artifacts().contains(ArtifactId.PROJECT)) {
+                roots.add(key);
+            }
+            if (bean.factoryBean() != null) {
+                for (BeanKey factory : resolveBeans(key.context(), bean.factoryBean(), probes, contextsByKey, beans)) {
+                    products.computeIfAbsent(factory, k -> new ArrayList<>()).add(key);
+                }
+            }
+        });
+        // Expand all factory levels before traversal, regardless of bean definition order.
+        Deque<BeanKey> factories = new ArrayDeque<>(roots);
+        while (!factories.isEmpty()) {
+            for (BeanKey product : products.getOrDefault(factories.poll(), List.of())) {
+                if (roots.add(product)) {
+                    factories.add(product);
                 }
             }
         }
-        reachedFrom.forEach((name, root) -> {
-            ProbeReport.Bean bean = byName.get(name);
-            if (bean != null && !roots.contains(name)) {
+
+        Map<BeanKey, BeanKey> reachedFrom = new LinkedHashMap<>();
+        Deque<BeanKey> queue = new ArrayDeque<>();
+        roots.forEach(r -> { reachedFrom.put(r, r); queue.add(r); });
+        while (!queue.isEmpty()) {
+            BeanKey key = queue.poll();
+            ProbeReport.Bean bean = beans.get(key);
+            for (String dep : bean.dependencies()) {
+                for (BeanKey dependency : resolveBeans(key.context(), dep, probes, contextsByKey, beans)) {
+                    if (reachedFrom.putIfAbsent(dependency, reachedFrom.get(key)) == null) {
+                        queue.add(dependency);
+                    }
+                }
+            }
+        }
+        reachedFrom.forEach((key, root) -> {
+            ProbeReport.Bean bean = beans.get(key);
+            if (!roots.contains(key)) {
                 credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
-                        "bean '" + name + "' (" + bean.type() + ") used by project bean '" + root + "'"));
+                        "bean '" + key.name() + "' (" + bean.type() + ") used by project bean '" + root.name() + "'"));
             }
         });
+    }
+
+    private record BeanKey(int context, String name) {}
+
+    /** Spring resolves a local bean before looking in its ancestors; unrelated contexts are never searched. */
+    private static Set<BeanKey> resolveBeans(int context, String name, List<ProbeReport> probes,
+                                             Map<String, List<Integer>> contextsByKey,
+                                             Map<BeanKey, ProbeReport.Bean> beans) {
+        Set<BeanKey> resolved = new LinkedHashSet<>();
+        Set<Integer> visited = new HashSet<>();
+        Deque<Integer> queue = new ArrayDeque<>();
+        queue.add(context);
+        while (!queue.isEmpty()) {
+            int snapshot = queue.poll();
+            if (!visited.add(snapshot)) {
+                continue;
+            }
+            BeanKey key = new BeanKey(snapshot, name);
+            if (beans.containsKey(key)) {
+                resolved.add(key);
+            } else {
+                queue.addAll(contextsByKey.getOrDefault(probes.get(snapshot).parentContextKey(), List.of()));
+            }
+        }
+        return resolved;
     }
 
     private static void credit(Map<ArtifactId, Set<Evidence>> found, Map<ArtifactId, ArtifactId> owner,

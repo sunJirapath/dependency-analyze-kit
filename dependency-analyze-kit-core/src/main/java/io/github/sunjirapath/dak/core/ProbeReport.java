@@ -13,7 +13,13 @@ import java.util.function.Function;
 
 /** One application context as dumped by the spring-probe, with class locations resolved to artifacts. */
 public record ProbeReport(String id, boolean fullAutoConfig, List<String> profiles,
-                          List<AutoConfig> autoConfigs, List<Bean> beans) {
+                          List<AutoConfig> autoConfigs, List<Bean> beans, String contextKey, String parentContextKey) {
+
+    /** Compatibility with reports collected before context hierarchy identifiers were recorded. */
+    public ProbeReport(String id, boolean fullAutoConfig, List<String> profiles,
+                       List<AutoConfig> autoConfigs, List<Bean> beans) {
+        this(id, fullAutoConfig, profiles, autoConfigs, beans, null, null);
+    }
 
     /** A condition-report source: an auto-configuration (or other conditional) class. */
     public record AutoConfig(String name, boolean matched, Set<ArtifactId> artifacts, List<String> messages) {}
@@ -39,7 +45,7 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
                         .map(b -> new Bean((String) b.get("name"), (String) b.get("type"),
                                 artifacts(b.get("locations"), locate), (String) b.get("factoryBean"),
                                 strings(b.get("dependencies"))))
-                        .toList());
+                        .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"));
     }
 
     private static Set<ArtifactId> artifacts(Object locations, Function<String, ArtifactId> locate) {

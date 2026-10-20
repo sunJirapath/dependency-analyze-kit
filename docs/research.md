@@ -147,6 +147,12 @@ The classifier attributes the auto-config to every declared dependency whose own
 - **Profiles:** the probe records `environment.getActiveProfiles()` in each file, so the report can say which profiles the evidence covers.
 - **`-Ddak.enabled=true` reaching the forked test JVM:** Surefire copies Maven user properties into the fork's system properties (**UNVERIFIED** on this version; IT #1 proves it).
 - **Probe output directory:** `${dak.outputDirectory}`, default `target/dependency-analyze-kit`, relative to `user.dir`. Surefire's default working directory is `${basedir}`.
+  The goal reads that producer directory independently of its `report.json` destination, which defaults to
+  `${project.build.directory}/dependency-analyze-kit`. XML-only `outputDirectory` customizes the final report;
+  a `-Ddak.outputDirectory` override relocates both producer and report.
+- **Context hierarchy:** each live context has a unique `contextKey` and optional `parentContextKey`, independent
+  of its display ID. Bean edges resolve locally first, then through recorded ancestors. Unrelated contexts
+  never share beans by name. Legacy probe files without keys retain isolated per-file traversal.
 - **Probe JSON writing:** hand-written, about 40 lines. The probe lands on the user's test classpath, so it must not pull in Jackson or anything else that could clash.
 - **Shared transitives:** shared artifacts are neutral, but a declared dependency's *own* jar always counts for it. Example: `commons-lang3` declared directly and also pulled in transitively by something else is still judged on its own references.
 - **Built-in ignore list** (`UNUSED_CANDIDATE` → `IGNORED`, with a reason):

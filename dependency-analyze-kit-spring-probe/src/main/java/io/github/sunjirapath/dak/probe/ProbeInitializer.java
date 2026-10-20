@@ -13,6 +13,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -21,6 +23,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionEvaluationRepor
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.context.annotation.ImportCandidates;
 import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -37,6 +40,11 @@ import org.springframework.util.MultiValueMap;
 public class ProbeInitializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
     private static final AtomicInteger COUNTER = new AtomicInteger();
+    private static final Map<ApplicationContext, String> CONTEXT_KEYS = new WeakHashMap<>();
+
+    private static synchronized String contextKey(ApplicationContext context) {
+        return context == null ? null : CONTEXT_KEYS.computeIfAbsent(context, c -> UUID.randomUUID().toString());
+    }
 
     @Override
     public void initialize(ConfigurableApplicationContext context) {
@@ -61,6 +69,8 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
         ConditionEvaluationReport report = ConditionEvaluationReport.find(bf);
         Json json = new Json();
         json.open('{').field("id").str(context.getId())
+                .field("contextKey").str(contextKey(context))
+                .field("parentContextKey").str(contextKey(context.getParent()))
                 .field("fullAutoConfig").raw(String.valueOf(report != null && isFull(report, cl)))
                 .field("profiles").strs(Arrays.asList(context.getEnvironment().getActiveProfiles()))
                 .field("autoConfigs").open('[');
@@ -74,6 +84,11 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
                     }
                 });
                 autoConfig(json, e.getKey(), e.getValue().isFullMatch(), messages, cl);
+            }
+            for (String name : report.getUnconditionalClasses()) {
+                if (!report.getConditionAndOutcomesBySource().containsKey(name)) {
+                    autoConfig(json, name, true, List.of(), cl);
+                }
             }
             for (String excluded : report.getExclusions()) {
                 autoConfig(json, excluded, false, List.of("excluded"), cl);
