@@ -64,8 +64,12 @@ public final class Classifier {
         }
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
         BUILT_IN_IGNORES.put("org.projectlombok:lombok", "annotation processor");
+        BUILT_IN_IGNORES.put("org.mapstruct:mapstruct-processor", "annotation processor");
+        BUILT_IN_IGNORES.put("org.projectlombok:lombok-mapstruct-binding", "annotation processor");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-devtools", "development-time tooling");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-docker-compose", "development-time tooling");
+        BUILT_IN_IGNORES.put("io.github.sunjirapath:dependency-analyze-kit-spring-probe",
+                "DAK's own probe, declared on the test classpath to produce evidence");
     }
 
     private final List<String> ignored;
@@ -73,9 +77,21 @@ public final class Classifier {
 
     /** Patterns are {@code groupId:artifactId} with {@code *} wildcards; they extend the built-in lists. */
     public Classifier(Collection<String> ignored, Collection<String> sideEffect) {
+        ignored.forEach(Classifier::requireGroupArtifact);
+        sideEffect.forEach(Classifier::requireGroupArtifact);
         this.ignored = List.copyOf(ignored);
         this.sideEffect = new ArrayList<>(BUILT_IN_SIDE_EFFECT);
         this.sideEffect.addAll(sideEffect);
+    }
+
+    /** A bare artifact name never matches {@link ArtifactId#matches}; fail loudly instead of ignoring nothing. */
+    private static void requireGroupArtifact(String pattern) {
+        String trimmed = pattern.trim();
+        int colon = trimmed.indexOf(':');
+        if (colon <= 0 || colon != trimmed.lastIndexOf(':') || colon == trimmed.length() - 1) {
+            throw new IllegalArgumentException(
+                    "'" + pattern + "' is not a groupId:artifactId pattern; bare artifact names never match");
+        }
     }
 
     /**

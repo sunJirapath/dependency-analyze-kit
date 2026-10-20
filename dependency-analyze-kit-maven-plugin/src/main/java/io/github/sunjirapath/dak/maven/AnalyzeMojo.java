@@ -8,6 +8,7 @@ import io.github.sunjirapath.dak.core.Verdict;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -128,6 +129,38 @@ public class AnalyzeMojo extends AbstractMojo {
                 analysis.getUsedUndeclaredArtifactsWithUsages())) {
             m.forEach((a, usages) -> usages.forEach(u ->
                     out.computeIfAbsent(id(a), k -> new TreeSet<>()).add(u.getDependencyClass())));
+        }
+        try {
+            annotationReferences().forEach((artifact, classes) ->
+                    out.computeIfAbsent(artifact, k -> new TreeSet<>()).addAll(classes));
+        } catch (IOException e) {
+            getLog().warn("Could not scan annotation type references: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * Supplements maven-dependency-analyzer with references kept only in class metadata, notably annotations.
+     * Annotations such as {@code @EnableFeignClients} are starter usage even though they are not instructions in a
+     * method body, and therefore are not always reported by the default analyzer.
+     */
+    private Map<ArtifactId, Set<String>> annotationReferences() throws IOException {
+        Set<String> references = ClassReferenceScanner.scan(List.of(
+                Path.of(project.getBuild().getOutputDirectory()), Path.of(project.getBuild().getTestOutputDirectory())));
+        Map<ArtifactId, Set<String>> out = new HashMap<>();
+        for (Artifact artifact : project.getArtifacts()) {
+            File file = artifact.getFile();
+            if (file == null || !file.isFile() || !file.getName().endsWith(".jar")) {
+                continue;
+            }
+            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(file)) {
+                ArtifactId id = id(artifact);
+                for (String reference : references) {
+                    if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
+                        out.computeIfAbsent(id, k -> new TreeSet<>()).add(reference);
+                    }
+                }
+            }
         }
         return out;
     }
