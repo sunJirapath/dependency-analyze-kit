@@ -1,4 +1,4 @@
-package io.github.sunjirapath.dak.maven;
+package io.github.sunjirapath.dak.core;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -20,7 +20,7 @@ class ClassReferenceScannerTest {
         Path classes = Path.of(ClassReferenceScannerTest.class.getProtectionDomain().getCodeSource()
                 .getLocation().toURI());
         Set<String> references = ClassReferenceScanner.scan(Set.of(classes));
-        String annotationType = "io.github.sunjirapath.dak.maven.ClassReferenceScannerTest";
+        String annotationType = "io.github.sunjirapath.dak.core.ClassReferenceScannerTest";
         assertTrue(references.contains(annotationType + (char) 36 + "Marker"), references::toString);
     }
 }

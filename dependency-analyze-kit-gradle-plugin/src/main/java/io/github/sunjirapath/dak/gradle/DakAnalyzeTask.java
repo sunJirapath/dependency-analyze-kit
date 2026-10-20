@@ -2,6 +2,7 @@ package io.github.sunjirapath.dak.gradle;
 
 import io.github.sunjirapath.dak.core.ArtifactId;
 import io.github.sunjirapath.dak.core.Classifier;
+import io.github.sunjirapath.dak.core.ClassReferenceScanner;
 import io.github.sunjirapath.dak.core.ProbeReport;
 import io.github.sunjirapath.dak.core.Reports;
 import io.github.sunjirapath.dak.core.Verdict;
