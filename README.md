@@ -62,6 +62,36 @@ Add the probe and the plugin to your Spring Boot project:
 </build>
 ```
 
+### Gradle
+
+Apply the plugin from a buildscript dependency, then add the probe to the test classpath. Use the same released version for both artifacts. The plugin runs
+`dependencyAnalyzeKit` as part of `check`, enables the probe for Gradle test tasks, and writes
+`build/dependency-analyze-kit/report.json`.
+
+```kotlin
+buildscript {
+    repositories { mavenCentral() }
+    dependencies {
+        classpath("io.github.sunjirapath:dependency-analyze-kit-gradle-plugin:<version>")
+    }
+}
+
+apply(plugin = "io.github.sunjirapath.dependency-analyze-kit")
+
+dependencies {
+    testImplementation("io.github.sunjirapath:dependency-analyze-kit-spring-probe:<version>")
+}
+
+dak {
+    failOnUnused = true
+    ignored = listOf("io.micrometer:micrometer-registry-*")
+    sideEffectStarters = listOf("org.springframework.boot:spring-boot-starter-oauth2-client")
+}
+```
+
+Run `./gradlew check`. The plugin currently supports JVM projects that apply Gradle's `java` plugin; use
+`dependencyAnalyzeKit` directly if you want to generate only the dependency report.
+
 ### Quick start
 
 #### 1. Run the build with the probe switched on

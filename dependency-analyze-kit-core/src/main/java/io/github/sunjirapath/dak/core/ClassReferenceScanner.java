@@ -1,4 +1,4 @@
-package io.github.sunjirapath.dak.maven;
+package io.github.sunjirapath.dak.core;
 
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -10,14 +10,14 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /** Finds type names embedded in compiled-class metadata, including annotation descriptors. */
-final class ClassReferenceScanner {
+public final class ClassReferenceScanner {
 
     private static final int CLASS_MAGIC = 0xCAFEBABE;
     private static final Pattern DESCRIPTOR_TYPE = Pattern.compile("L([A-Za-z0-9_$/]+);");
 
     private ClassReferenceScanner() {}
 
-    static Set<String> scan(Iterable<Path> roots) throws IOException {
+    public static Set<String> scan(Iterable<Path> roots) throws IOException {
         Set<String> references = new HashSet<>();
         for (Path root : roots) {
             if (root == null || !Files.isDirectory(root)) {
