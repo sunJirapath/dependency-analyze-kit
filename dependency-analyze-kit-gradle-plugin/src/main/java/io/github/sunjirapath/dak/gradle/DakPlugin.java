@@ -30,7 +30,7 @@ public final class DakPlugin implements Plugin<Project> {
             task.systemProperty("dak.enabled", true);
             task.systemProperty("dak.outputDirectory", extension.getOutputDirectory().getAbsolutePath());
         });
-        TaskProvider<DakAnalyzeTask> analyze = project.getTasks().register("dakAnalyze", DakAnalyzeTask.class, task -> {
+        TaskProvider<DakAnalyzeTask> analyze = project.getTasks().register("dependencyAnalyzeKit", DakAnalyzeTask.class, task -> {
             task.dependsOn(project.getTasks().named("test"));
             task.setExtension(extension);
             task.setRuntimeConfiguration(project.getConfigurations().getByName("runtimeClasspath"));

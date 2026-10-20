@@ -65,7 +65,7 @@ Add the probe and the plugin to your Spring Boot project:
 ### Gradle
 
 Apply the plugin from a buildscript dependency, then add the probe to the test classpath. Use the same released version for both artifacts. The plugin runs
-`dakAnalyze` as part of `check`, enables the probe for Gradle test tasks, and writes
+`dependencyAnalyzeKit` as part of `check`, enables the probe for Gradle test tasks, and writes
 `build/dependency-analyze-kit/report.json`.
 
 ```kotlin
@@ -90,7 +90,7 @@ dak {
 ```
 
 Run `./gradlew check`. The plugin currently supports JVM projects that apply Gradle's `java` plugin; use
-`dakAnalyze` directly if you want to generate only the dependency report.
+`dependencyAnalyzeKit` directly if you want to generate only the dependency report.
 
 ### Quick start
 
