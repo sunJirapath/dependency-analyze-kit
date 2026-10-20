@@ -3,6 +3,7 @@ package io.github.sunjirapath.dak.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.sunjirapath.dak.core.Classifier.Declared;
@@ -272,6 +273,22 @@ class ClassifierTest {
         assertEquals(Verdict.IGNORED, r.get(LANG3).verdict());
         assertEquals("ignored by configuration (org.apache.commons:*)", r.get(LANG3).summary());
         assertEquals(Verdict.USED_BYTECODE, r.get(WEB).verdict());
+    }
+
+    @Test
+    void probeArtifactIsIgnoredByDefault() {
+        ArtifactId probeArtifact = id("io.github.sunjirapath:dependency-analyze-kit-spring-probe");
+        List<Declared> declared = List.of(new Declared(probeArtifact, "test"));
+        Map<ArtifactId, ArtifactId> owner = Classifier.owners(Map.of(probeArtifact, Set.of()), Set.of());
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(), List.of());
+        List<Result> results = classifier.classify(declared, owner, Map.of(), List.of(probe));
+        assertEquals(Verdict.IGNORED, results.get(0).verdict());
+    }
+
+    @Test
+    void bareArtifactNameInConfigFailsFastInsteadOfSilentlyMatchingNothing() {
+        assertThrows(IllegalArgumentException.class, () -> new Classifier(List.of("mapstruct-processor"), List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new Classifier(List.of(), List.of("spring-boot-starter-web")));
     }
 
     @Test
