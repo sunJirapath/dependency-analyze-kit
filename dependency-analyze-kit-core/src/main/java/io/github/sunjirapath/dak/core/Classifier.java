@@ -64,6 +64,8 @@ public final class Classifier {
         }
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
         BUILT_IN_IGNORES.put("org.projectlombok:lombok", "annotation processor");
+        BUILT_IN_IGNORES.put("org.mapstruct:mapstruct-processor", "annotation processor");
+        BUILT_IN_IGNORES.put("org.projectlombok:lombok-mapstruct-binding", "annotation processor");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-devtools", "development-time tooling");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-docker-compose", "development-time tooling");
     }
