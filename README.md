@@ -304,7 +304,7 @@ configuration change is needed for custom Maven build directories.
 - **Dependencies are identified by `groupId:artifactId`.** A dependency declared twice with different classifiers
   (e.g. a module and its `test-jar`) is analyzed as one.
 - **Maven 4** passes in CI on 4.0.0-rc-7. That job doesn't block the build until Maven 4 reaches GA.
-- **Not supported:** Gradle, auto-removal of dependencies, fat-jar (`jar:nested:`) class locations.
+- **Not supported:** auto-removal of dependencies, fat-jar (`jar:nested:`) class locations.
   The probe is meant for the test classpath. There's no `mvn dependency:analyze -Danalyzer=…` adapter yet.
   Its result format can't carry verdicts or evidence; it can be added on request.
 
