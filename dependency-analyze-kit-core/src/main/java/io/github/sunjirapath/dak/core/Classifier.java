@@ -22,7 +22,8 @@ import java.util.Set;
  *
  * <p>Evidence found on any artifact is credited to that artifact's <em>owner</em>: the declared dependency itself,
  * or the single declared dependency whose transitive closure contains it. Artifacts reachable from more than one
- * declared dependency have no owner and count for nobody (the starter rule).
+ * declared dependency have no owner and count for nobody (the starter rule), unless one of them is itself brought in
+ * whole by all the others.
  */
 public final class Classifier {
 
@@ -42,7 +43,22 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-starter-freemarker",
             "org.springframework.boot:spring-boot-starter-mustache",
             "org.springframework.boot:spring-boot-starter-groovy-templates",
-            "org.springframework.boot:spring-boot-starter-web-services");
+            "org.springframework.boot:spring-boot-starter-web-services",
+            // annotation-driven: work through post-processors and advisors, which nothing injects
+            "org.springframework.boot:spring-boot-starter-cache",
+            "org.springframework.boot:spring-boot-starter-validation",
+            "org.springframework.boot:spring-boot-starter-aop",
+            "org.springframework.boot:spring-boot-starter-aspectj",
+            "org.aspectj:aspectjweaver",
+            "io.github.resilience4j:resilience4j-spring-boot*",
+            // the framework calls the project's functions, so no edge points from project beans to it
+            "org.springframework.cloud:spring-cloud-starter-stream-*",
+            "org.springframework.cloud:spring-cloud-stream-binder-*",
+            // providers that an auto-configuration picks up by class presence
+            "io.micrometer:micrometer-registry-*",
+            "com.github.ben-manes.caffeine:caffeine",
+            "io.github.openfeign:feign-okhttp",
+            "io.github.openfeign:feign-hc5");
 
     /** artifactId words that say nothing about which auto-configuration belongs to a dependency. */
     private static final Set<String> GENERIC_WORDS = Set.of("spring", "boot", "starter", "data", "autoconfigure");
@@ -62,6 +78,10 @@ public final class Classifier {
                 "org.springframework.boot:spring-boot-starter-log4j2")) {
             BUILT_IN_IGNORES.put(p, logging);
         }
+        BUILT_IN_IGNORES.put("org.ehcache:ehcache", "JCache provider, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.apache.commons:commons-pool2", "connection pool, switched on by class presence");
+        BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
+                "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
         BUILT_IN_IGNORES.put("org.projectlombok:lombok", "annotation processor");
         BUILT_IN_IGNORES.put("org.mapstruct:mapstruct-processor", "annotation processor");
@@ -101,6 +121,9 @@ public final class Classifier {
      * main-scope dependency claims it too. Otherwise {@code spring-boot-starter-test}, which pulls in
      * {@code spring-boot-starter}, would make every Boot jar shared.
      *
+     * <p>When one claimant's whole closure is inside every other claimant's (a starter that a declared library
+     * also pulls in), that claimant owns the artifact: it is how the project gets it directly.
+     *
      * @param closures   each declared dependency to its transitive closure
      * @param testScoped the declared dependencies with test scope
      */
@@ -113,8 +136,11 @@ public final class Classifier {
             Set<ArtifactId> main = new HashSet<>(ds);
             main.removeAll(testScoped);
             Set<ArtifactId> claims = main.isEmpty() ? ds : main;
-            if (claims.size() == 1) {
-                owner.put(a, claims.iterator().next());
+            // a claimant that every other claimant brings in whole is the direct route to the artifact
+            List<ArtifactId> direct = claims.stream().filter(d -> claims.stream()
+                    .allMatch(o -> o.equals(d) || closures.get(o).containsAll(closures.get(d)))).toList();
+            if (direct.size() == 1) {
+                owner.put(a, direct.get(0));
             }
         });
         closures.keySet().forEach(d -> owner.put(d, d)); // a declared dependency always owns its own jar

@@ -230,6 +230,49 @@ class ClassifierTest {
     }
 
     @Test
+    void starterAlsoPulledInByALibraryOwnsWhatItBrings() {
+        ArtifactId helper = id("com.example:data-lib");
+        ArtifactId mongoStarter = id("org.springframework.boot:spring-boot-starter-data-mongodb");
+        ArtifactId dataMongo = id("org.springframework.data:spring-data-mongodb");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                helper, Set.of(helper, mongoStarter, dataMongo, BOOT),
+                mongoStarter, Set.of(mongoStarter, dataMongo, BOOT),
+                WEB, Set.of(WEB, SPRING_WEB, BOOT)), Set.of());
+        assertEquals(mongoStarter, owners.get(dataMongo));
+        assertNull(owners.get(BOOT), "web does not bring the mongo starter, so spring-boot stays shared");
+
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(helper, "compile"), new Declared(mongoStarter, "compile")), owners,
+                Map.of(dataMongo, Set.of("org.springframework.data.mongodb.core.MongoTemplate")), List.of()));
+        assertEquals(Verdict.USED_BYTECODE, r.get(mongoStarter).verdict());
+    }
+
+    @Test
+    void annotationDrivenStartersAreSideEffect() {
+        ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
+        ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.cache.autoconfigure.CacheAutoConfiguration", true, cacheAc)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(List.of(new Declared(cache, "compile")),
+                Classifier.owners(Map.of(cache, Set.of(cache, cacheAc)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(cache).verdict());
+    }
+
+    @Test
+    void wildcardSideEffectAndPoolIgnore() {
+        ArtifactId r4j = id("io.github.resilience4j:resilience4j-spring-boot4");
+        ArtifactId pool = id("org.apache.commons:commons-pool2");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("io.github.resilience4j.springboot.circuitbreaker.CircuitBreakerAutoConfiguration", true, r4j)),
+                List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(r4j, "compile"), new Declared(pool, "compile")),
+                Classifier.owners(Map.of(r4j, Set.of(r4j), pool, Set.of(pool)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(r4j).verdict());
+        assertEquals(Verdict.IGNORED, r.get(pool).verdict());
+    }
+
+    @Test
     void sideEffectStarterIsUsedByMatchedAutoConfig() {
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.actuate.autoconfigure.health.HealthEndpointAutoConfiguration", true, ACTUATOR_AC)),

@@ -148,7 +148,7 @@ Evidence `kind` is one of `BYTECODE`, `BEAN`, `AUTOCONFIG_MATCHED`, `AUTOCONFIG_
 |---|---|---|
 | `USED_BYTECODE` | Project classes reference the dependency's jar, or a jar only it brings in. | Keep it. |
 | `USED_BEAN` | A bean from it (or from a jar only it brings in) is injected, directly or transitively, into one of your beans. | Keep it. |
-| `USED_AUTOCONFIG` | One of its auto-configurations matched, and it is a side-effect starter: actuator, security, template engines, web-services, plus your `sideEffectStarters`. | Keep it. |
+| `USED_AUTOCONFIG` | One of its auto-configurations matched, and it is a side-effect starter: actuator, security, template engines, web-services, cache, validation, AOP/AspectJ, Resilience4j, Spring Cloud Stream binders, Micrometer registries, Caffeine and Feign HTTP clients, plus your `sideEffectStarters`. | Keep it. |
 | `UNUSED_CANDIDATE` | None of the above, in at least one full (non-slice) test context. | Remove it and run the tests. If something breaks at runtime, add it to `ignored` (see [Known gaps](#known-gaps)). |
 | `IGNORED` | It would be unused or unknown, but it is on the built-in or configured ignore list. | Nothing. |
 | `UNKNOWN` | No probe report, or only slice-test contexts were observed. Nothing is ever reported as unused without runtime evidence. | Run with `-Ddak.enabled=true` and add a `@SpringBootTest`. |
@@ -290,15 +290,15 @@ configuration change is needed for custom Maven build directories.
 
 - **No class-loading or JFR tracing.** Usage through `ServiceLoader`/SPI, JDBC drivers, logging backends, reflection,
   or templates only (e.g. a Thymeleaf view) is invisible, so these can show up as false `UNUSED_CANDIDATE`s. The
-  built-in ignore list covers JDBC drivers, logging backends and bridges, annotation processors, devtools and
-  docker-compose.
+  built-in ignore list covers JDBC drivers, logging backends and bridges, annotation processors, devtools,
+  docker-compose, ehcache (JCache), commons-pool2 and feign-micrometer. Feign's per-client contexts are not probed either.
 - **Evidence covers only what your tests exercised.** Conditions depend on profiles and properties. Run the build
   once per profile; merging results across runs is not supported. Lazy and prototype beans that no test created
   have no dependency edges.
 - **Shared artifacts count for nobody.** If two declared starters both bring `spring-boot`, a reference to
-  `SpringApplication` credits neither. An explicitly declared `spring-boot-starter` next to another starter is
-  therefore often a candidate. That is accurate for compilation, but removing it can change logging. Use
-  `ignored` if you want to keep it.
+  `SpringApplication` credits neither. One exception: when every other claimant brings in a dependency whole, as
+  with an internal library that depends on the same starter you declare, that dependency owns the shared jars. So
+  an explicit `spring-boot-starter` is credited, and so is a starter that one of your own libraries also pulls in.
   A test-scope dependency never makes a jar shared for a main-scope one, because it can't replace it. So
   `spring-boot-starter-test` doesn't hide `spring-boot-starter`.
 - **Dependencies are identified by `groupId:artifactId`.** A dependency declared twice with different classifiers
@@ -391,7 +391,7 @@ probe จะทำงานเฉพาะเมื่อใส่ `-Ddak.enable
 |---|---|---|
 | `USED_BYTECODE` | โค้ดในโปรเจกต์อ้างถึง jar ของมัน หรือ jar ที่มันดึงเข้ามาแต่เพียงผู้เดียว | เก็บไว้ |
 | `USED_BEAN` | bean จากมันถูก inject เข้า bean ของโปรเจกต์ (ทางตรงหรือทางอ้อม) | เก็บไว้ |
-| `USED_AUTOCONFIG` | auto-config ของมัน match และเป็น starter ที่ทำงานด้วยตัวเอง (actuator, security, template engine ฯลฯ) | เก็บไว้ |
+| `USED_AUTOCONFIG` | auto-config ของมัน match และเป็น starter ที่ทำงานด้วยตัวเอง (actuator, security, template engine, cache, validation, AOP, Resilience4j, Micrometer registry ฯลฯ) | เก็บไว้ |
 | `UNUSED_CANDIDATE` | ไม่มีหลักฐานข้างบนเลย ใน test context เต็มอย่างน้อยหนึ่งตัว | ลองลบแล้วรันเทสต์ ถ้าพังตอนรันจริงให้ใส่ใน `ignored` |
 | `IGNORED` | อยู่ใน ignore list (เช่น JDBC driver, logging backend) | ไม่ต้องทำอะไร |
 | `UNKNOWN` | ไม่มี probe report หรือมีแค่ slice test | รันด้วย `-Ddak.enabled=true` และเพิ่ม `@SpringBootTest` |
@@ -403,7 +403,7 @@ auto-config ที่ match อย่างเดียว **ไม่นับ*
 - มองไม่เห็นการใช้ผ่าน `ServiceLoader`/SPI, reflection หรือ template อย่างเดียว อาจได้ `UNUSED_CANDIDATE` ผิด ๆ
   (JDBC driver และ logging backend อยู่ใน ignore list ให้แล้ว)
 - หลักฐานครอบคลุมเฉพาะสิ่งที่เทสต์รันถึง ผลขึ้นกับ profile และ property ให้รันแยกทีละ profile
-- artifact ที่ starter หลายตัวใช้ร่วมกันจะไม่นับให้ใครเลย รายละเอียดดู [Known gaps](#known-gaps)
+- artifact ที่ starter หลายตัวใช้ร่วมกันจะไม่นับให้ใครเลย ยกเว้นตัวที่ตัวอื่นทุกตัวดึงเข้ามาทั้งก้อน รายละเอียดดู [Known gaps](#known-gaps)
 
 ### สัญญาอนุญาต
 
