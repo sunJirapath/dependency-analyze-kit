@@ -23,7 +23,7 @@ import java.util.Set;
  * <p>Evidence found on any artifact is credited to that artifact's <em>owner</em>: the declared dependency itself,
  * or the single declared dependency whose transitive closure contains it. Artifacts reachable from more than one
  * declared dependency have no owner and count for nobody (the starter rule), unless one of them is itself brought in
- * whole by all the others.
+ * whole by all the others, or the artifact is the Boot module a declared starter is named after.
  */
 public final class Classifier {
 
@@ -39,6 +39,7 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-starter-actuator",
             "org.springframework.boot:spring-boot-starter-security",
             "org.springframework.boot:spring-boot-starter-oauth2-resource-server",
+            "org.springframework.boot:spring-boot-starter-security-oauth2-resource-server",
             "org.springframework.boot:spring-boot-starter-thymeleaf",
             "org.springframework.boot:spring-boot-starter-freemarker",
             "org.springframework.boot:spring-boot-starter-mustache",
@@ -58,7 +59,20 @@ public final class Classifier {
             "io.micrometer:micrometer-registry-*",
             "com.github.ben-manes.caffeine:caffeine",
             "io.github.openfeign:feign-okhttp",
-            "io.github.openfeign:feign-hc5");
+            "io.github.openfeign:feign-hc5",
+            // switched on by presence or configuration alone: UIs, exporters, codecs, protocols
+            "org.springframework.boot:spring-boot-starter-opentelemetry",
+            "org.springframework.boot:spring-boot-starter-h2console",
+            "org.springframework.boot:spring-boot-properties-migrator",
+            "io.micrometer:micrometer-tracing-bridge-*",
+            "org.springdoc:springdoc-openapi-starter-*",
+            "com.fasterxml.jackson.dataformat:jackson-dataformat-xml",
+            "tools.jackson.dataformat:jackson-dataformat-xml",
+            "com.fasterxml.jackson.module:jackson-module-kotlin",
+            "tools.jackson.module:jackson-module-kotlin",
+            "org.jetbrains.kotlin:kotlin-reflect",
+            "org.eclipse.jetty.http2:*",
+            "org.eclipse.jetty:jetty-alpn-*");
 
     /** artifactId words that say nothing about which auto-configuration belongs to a dependency. */
     private static final Set<String> GENERIC_WORDS = Set.of("spring", "boot", "starter", "data", "autoconfigure");
@@ -86,6 +100,7 @@ public final class Classifier {
         BUILT_IN_IGNORES.put("org.projectlombok:lombok", "annotation processor");
         BUILT_IN_IGNORES.put("org.mapstruct:mapstruct-processor", "annotation processor");
         BUILT_IN_IGNORES.put("org.projectlombok:lombok-mapstruct-binding", "annotation processor");
+        BUILT_IN_IGNORES.put("io.soabase.record-builder:record-builder-core", "annotation processor");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-devtools", "development-time tooling");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-docker-compose", "development-time tooling");
         BUILT_IN_IGNORES.put("io.github.sunjirapath:dependency-analyze-kit-spring-probe",
@@ -124,6 +139,9 @@ public final class Classifier {
      * <p>When one claimant's whole closure is inside every other claimant's (a starter that a declared library
      * also pulls in), that claimant owns the artifact: it is how the project gets it directly.
      *
+     * <p>Otherwise a Boot module {@code spring-boot-X} belongs to a claimant {@code spring-boot-starter-X}: Boot 4
+     * splits each starter into a module that libraries (springdoc, other starters) often pull in as well.
+     *
      * @param closures   each declared dependency to its transitive closure
      * @param testScoped the declared dependencies with test scope
      */
@@ -141,6 +159,12 @@ public final class Classifier {
                     .allMatch(o -> o.equals(d) || closures.get(o).containsAll(closures.get(d)))).toList();
             if (direct.size() == 1) {
                 owner.put(a, direct.get(0));
+            } else if (a.groupId().equals("org.springframework.boot") && a.artifactId().startsWith("spring-boot-")) {
+                ArtifactId starter = new ArtifactId(a.groupId(),
+                        "spring-boot-starter-" + a.artifactId().substring("spring-boot-".length()));
+                if (claims.contains(starter)) {
+                    owner.put(a, starter);
+                }
             }
         });
         closures.keySet().forEach(d -> owner.put(d, d)); // a declared dependency always owns its own jar
@@ -193,7 +217,8 @@ public final class Classifier {
                 summary = matched.detail();
             } else if (probes.isEmpty()) {
                 verdict = Verdict.UNKNOWN;
-                summary = "no probe report; run the tests with -Ddak.enabled=true and the spring-probe on the test classpath";
+                summary = "no probe report: no Spring context started in the tests, or the probe is not wired"
+                        + " (run with -Ddak.enabled=true and the spring-probe on the test classpath)";
             } else if (!full) {
                 verdict = Verdict.UNKNOWN;
                 summary = "only slice-test contexts observed; add a @SpringBootTest";

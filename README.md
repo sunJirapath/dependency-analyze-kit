@@ -90,7 +90,11 @@ dak {
 ```
 
 Run `./gradlew check`. The plugin currently supports JVM projects that apply Gradle's `java` plugin; use
-`dependencyAnalyzeKit` directly if you want to generate only the dependency report.
+`dependencyAnalyzeKit` directly if you want to generate only the dependency report. It runs every `Test` task
+first; each one writes its probe reports to `build/dependency-analyze-kit/<testTask>/` and empties that directory
+before it runs, so reports are never stale. `dakClean` deletes the whole directory. `platform()` BOM imports are
+skipped, and `implementation`/`api` dependencies are reported as `compile` scope, `runtimeOnly` ones as `runtime`.
+The task is configuration-cache compatible.
 
 ### Quick start
 
@@ -148,7 +152,7 @@ Evidence `kind` is one of `BYTECODE`, `BEAN`, `AUTOCONFIG_MATCHED`, `AUTOCONFIG_
 |---|---|---|
 | `USED_BYTECODE` | Project classes reference the dependency's jar, or a jar only it brings in. | Keep it. |
 | `USED_BEAN` | A bean from it (or from a jar only it brings in) is injected, directly or transitively, into one of your beans. | Keep it. |
-| `USED_AUTOCONFIG` | One of its auto-configurations matched, and it is a side-effect starter: actuator, security, template engines, web-services, cache, validation, AOP/AspectJ, Resilience4j, Spring Cloud Stream binders, Micrometer registries, Caffeine and Feign HTTP clients, plus your `sideEffectStarters`. | Keep it. |
+| `USED_AUTOCONFIG` | One of its auto-configurations matched, and it is a side-effect starter: actuator, security, template engines, web-services, cache, validation, AOP/AspectJ, Resilience4j, Spring Cloud Stream binders, Micrometer registries and tracing bridges, OpenTelemetry, OAuth2 resource server, springdoc, H2 console, properties migrator, Jackson XML/Kotlin modules, Jetty HTTP/2, Caffeine and Feign HTTP clients, plus your `sideEffectStarters`. | Keep it. |
 | `UNUSED_CANDIDATE` | None of the above, in at least one full (non-slice) test context. | Remove it and run the tests. If something breaks at runtime, add it to `ignored` (see [Known gaps](#known-gaps)). |
 | `IGNORED` | It would be unused or unknown, but it is on the built-in or configured ignore list. | Nothing. |
 | `UNKNOWN` | No probe report, or only slice-test contexts were observed. Nothing is ever reported as unused without runtime evidence. | Run with `-Ddak.enabled=true` and add a `@SpringBootTest`. |
@@ -300,7 +304,8 @@ configuration change is needed for custom Maven build directories.
   with an internal library that depends on the same starter you declare, that dependency owns the shared jars. So
   an explicit `spring-boot-starter` is credited, and so is a starter that one of your own libraries also pulls in.
   A test-scope dependency never makes a jar shared for a main-scope one, because it can't replace it. So
-  `spring-boot-starter-test` doesn't hide `spring-boot-starter`.
+  `spring-boot-starter-test` doesn't hide `spring-boot-starter`. And a starter owns the Boot module it is named
+  after: `spring-boot-starter-X` owns `spring-boot-X` even when a library also pulls that module in.
 - **Dependencies are identified by `groupId:artifactId`.** A dependency declared twice with different classifiers
   (e.g. a module and its `test-jar`) is analyzed as one.
 - **Maven 4** passes in CI on 4.0.0-rc-7. That job doesn't block the build until Maven 4 reaches GA.
