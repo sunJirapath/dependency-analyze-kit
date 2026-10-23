@@ -209,7 +209,9 @@ public class AnalyzeMojo extends AbstractMojo {
         if (node.getArtifact() != null) {
             into.add(new ArtifactId(node.getArtifact().getGroupId(), node.getArtifact().getArtifactId()));
         }
-        node.getChildren().forEach(c -> collect(c, into));
+        // a collect rooted at a dependency keeps that dependency's optional children; the project never gets them
+        node.getChildren().stream().filter(c -> c.getDependency() == null || !c.getDependency().isOptional())
+                .forEach(c -> collect(c, into));
     }
 
     /** Canonical jar or classes-directory path to artifact; the project's own output maps to PROJECT. */

@@ -248,6 +248,28 @@ class ClassifierTest {
     }
 
     @Test
+    void starterOwnsTheBootModuleItIsNamedAfterEvenWhenALibraryPullsItIn() {
+        ArtifactId springdoc = id("org.springdoc:springdoc-openapi-starter-webmvc-ui");
+        ArtifactId validationStarter = id("org.springframework.boot:spring-boot-starter-validation");
+        ArtifactId validation = id("org.springframework.boot:spring-boot-validation");
+        ArtifactId webmvc = id("org.springframework.boot:spring-boot-webmvc");
+        ArtifactId webmvcStarter = id("org.springframework.boot:spring-boot-starter-webmvc");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                springdoc, Set.of(springdoc, validation, webmvc, BOOT),
+                validationStarter, Set.of(validationStarter, validation, BOOT, AUTOCONFIGURE),
+                webmvcStarter, Set.of(webmvcStarter, webmvc, BOOT, AUTOCONFIGURE)), Set.of());
+        assertEquals(validationStarter, owners.get(validation));
+        assertEquals(webmvcStarter, owners.get(webmvc));
+        assertNull(owners.get(BOOT), "no starter is named after spring-boot itself");
+
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.validation.autoconfigure.ValidationAutoConfiguration", true, validation)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(List.of(new Declared(validationStarter, "compile")),
+                owners, Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(validationStarter).verdict());
+    }
+
+    @Test
     void annotationDrivenStartersAreSideEffect() {
         ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
         ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");

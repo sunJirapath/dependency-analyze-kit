@@ -4,8 +4,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Configuration for the {@code io.github.sunjirapath.dependency-analyze-kit} Gradle plugin. */
-public final class DakExtension {
+/** Configuration for the {@code io.github.sunjirapath.dependency-analyze-kit} Gradle plugin. Not final: Gradle subclasses extensions. */
+public class DakExtension {
     private boolean failOnUnused;
     private final List<String> ignored = new ArrayList<>();
     private final List<String> sideEffectStarters = new ArrayList<>();
