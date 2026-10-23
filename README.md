@@ -340,6 +340,14 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 The first run fills an isolated repository under `target/local-repo`, which can take several minutes.
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
+The Gradle plugin's integration test runs a multi-project Boot 4 build ([`multi-project`](dependency-analyze-kit-gradle-plugin/src/it/multi-project))
+and checks `report.json`, configuration-cache reuse, up-to-date tasks and probe-report cleanup.
+It needs Python 3 and Gradle 9.8.1 on the path (CI runs it on Linux, Java 21):
+
+```bash
+mvn install -DskipTests -Dinvoker.skip=true && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py
+```
+
 To try an unreleased snapshot of `main` in your own project, install it locally with
 `mvn install -DskipTests -Dinvoker.skip=true` and use version `0.2.0-SNAPSHOT`.
 
