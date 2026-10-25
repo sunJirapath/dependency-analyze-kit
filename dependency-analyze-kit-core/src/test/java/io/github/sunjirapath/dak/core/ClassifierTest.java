@@ -2,6 +2,7 @@ package io.github.sunjirapath.dak.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -270,6 +271,43 @@ class ClassifierTest {
     }
 
     @Test
+    void starterOwnsWhatLibrariesReachThroughTheBootModuleItIsNamedAfter() {
+        ArtifactId springdoc = id("org.springdoc:springdoc-openapi-starter-webmvc-ui");
+        ArtifactId webmvc = id("org.springframework.boot:spring-boot-webmvc");
+        ArtifactId webmvcStarter = id("org.springframework.boot:spring-boot-starter-webmvc");
+        ArtifactId tomcat = id("org.springframework.boot:spring-boot-starter-tomcat");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                springdoc, Set.of(springdoc, webmvc, SPRING_WEB, BOOT, id("org.webjars:swagger-ui")),
+                webmvcStarter, Set.of(webmvcStarter, webmvc, SPRING_WEB, tomcat, BOOT)), Set.of());
+        assertEquals(webmvcStarter, owners.get(SPRING_WEB));
+        assertEquals(webmvcStarter, owners.get(BOOT));
+    }
+
+    @Test
+    void starterWhoseJarsAnotherStarterAlsoBringsOwnsThem() {
+        ArtifactId aspectjStarter = id("org.springframework.boot:spring-boot-starter-aspectj");
+        ArtifactId jpaStarter = id("org.springframework.boot:spring-boot-starter-data-jpa");
+        ArtifactId weaver = id("org.aspectj:aspectjweaver");
+        ArtifactId aop = id("org.springframework:spring-aop");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                aspectjStarter, Set.of(aspectjStarter, aop, weaver, BOOT),
+                jpaStarter, Set.of(jpaStarter, aop, weaver, BOOT, id("org.hibernate.orm:hibernate-core"))), Set.of());
+        assertEquals(aspectjStarter, owners.get(weaver));
+        assertEquals(aspectjStarter, owners.get(BOOT));
+    }
+
+    @Test
+    void libraryWhoseJarsAStarterAlsoBringsDoesNotOwnThem() {
+        ArtifactId starter = id("org.springframework.boot:spring-boot-starter");
+        ArtifactId library = id("com.example:feature-starter");
+        ArtifactId autoconfigure = id("org.springframework.boot:spring-boot-autoconfigure");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                starter, Set.of(starter, autoconfigure, BOOT, id("org.yaml:snakeyaml")),
+                library, Set.of(library, autoconfigure, BOOT)), Set.of());
+        assertNotEquals(library, owners.get(autoconfigure));
+    }
+
+    @Test
     void annotationDrivenStartersAreSideEffect() {
         ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
         ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");
@@ -292,6 +330,25 @@ class ClassifierTest {
                 Classifier.owners(Map.of(r4j, Set.of(r4j), pool, Set.of(pool)), Set.of()), Map.of(), List.of(probe)));
         assertEquals(Verdict.USED_AUTOCONFIG, r.get(r4j).verdict());
         assertEquals(Verdict.IGNORED, r.get(pool).verdict());
+    }
+
+    @Test
+    void serviceLoaderProvidersAndWebjarsAreIgnored() {
+        ArtifactId jjwt = id("io.jsonwebtoken:jjwt-impl");
+        ArtifactId flyway = id("org.flywaydb:flyway-database-postgresql");
+        ArtifactId webjar = id("org.webjars:bootstrap");
+        ArtifactId console = id("org.springframework.boot:spring-boot-h2console");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.h2console.autoconfigure.H2ConsoleAutoConfiguration", true, console)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(jjwt, "runtime"), new Declared(flyway, "compile"),
+                        new Declared(webjar, "compile"), new Declared(console, "compile")),
+                Classifier.owners(Map.of(jjwt, Set.of(jjwt), flyway, Set.of(flyway), webjar, Set.of(webjar),
+                        console, Set.of(console)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.IGNORED, r.get(jjwt).verdict());
+        assertEquals(Verdict.IGNORED, r.get(flyway).verdict());
+        assertEquals(Verdict.IGNORED, r.get(webjar).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(console).verdict());
     }
 
     @Test

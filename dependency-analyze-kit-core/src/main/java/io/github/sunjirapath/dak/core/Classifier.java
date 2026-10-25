@@ -63,6 +63,7 @@ public final class Classifier {
             // switched on by presence or configuration alone: UIs, exporters, codecs, protocols
             "org.springframework.boot:spring-boot-starter-opentelemetry",
             "org.springframework.boot:spring-boot-starter-h2console",
+            "org.springframework.boot:spring-boot-h2console",
             "org.springframework.boot:spring-boot-properties-migrator",
             "io.micrometer:micrometer-tracing-bridge-*",
             "org.springdoc:springdoc-openapi-starter-*",
@@ -94,6 +95,15 @@ public final class Classifier {
         }
         BUILT_IN_IGNORES.put("org.ehcache:ehcache", "JCache provider, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("org.apache.commons:commons-pool2", "connection pool, switched on by class presence");
+        for (String p : List.of("io.jsonwebtoken:jjwt-impl", "io.jsonwebtoken:jjwt-jackson", "io.jsonwebtoken:jjwt-gson")) {
+            BUILT_IN_IGNORES.put(p, "implementation loaded through ServiceLoader");
+        }
+        BUILT_IN_IGNORES.put("org.flywaydb:flyway-database-*", "Flyway database support, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.flywaydb:flyway-mysql", "Flyway database support, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.thymeleaf.extras:thymeleaf-extras-springsecurity*",
+                "Thymeleaf dialect, registered by auto-configuration on class presence");
+        BUILT_IN_IGNORES.put("org.webjars:*", "static web resources, served from the classpath");
+        BUILT_IN_IGNORES.put("org.webjars.npm:*", "static web resources, served from the classpath");
         BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
                 "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
@@ -136,11 +146,13 @@ public final class Classifier {
      * main-scope dependency claims it too. Otherwise {@code spring-boot-starter-test}, which pulls in
      * {@code spring-boot-starter}, would make every Boot jar shared.
      *
-     * <p>When one claimant's whole closure is inside every other claimant's (a starter that a declared library
-     * also pulls in), that claimant owns the artifact: it is how the project gets it directly.
+     * <p>When one Boot starter's whole closure, the starter itself aside, is inside every other claimant's (a starter
+     * that a declared library also pulls in, or one whose jars another starter also brings), that starter owns
+     * the artifact: it is how the project gets it directly.
      *
-     * <p>Otherwise a Boot module {@code spring-boot-X} belongs to a claimant {@code spring-boot-starter-X}: Boot 4
-     * splits each starter into a module that libraries (springdoc, other starters) often pull in as well.
+     * <p>Otherwise the artifact belongs to a claimant {@code spring-boot-starter-X} when every claimant pulls in the
+     * Boot module {@code spring-boot-X}: Boot 4 splits each starter into a module that libraries (springdoc, other
+     * starters) often pull in as well, and those reach the artifact through it.
      *
      * @param closures   each declared dependency to its transitive closure
      * @param testScoped the declared dependencies with test scope
@@ -154,21 +166,36 @@ public final class Classifier {
             Set<ArtifactId> main = new HashSet<>(ds);
             main.removeAll(testScoped);
             Set<ArtifactId> claims = main.isEmpty() ? ds : main;
-            // a claimant that every other claimant brings in whole is the direct route to the artifact
-            List<ArtifactId> direct = claims.stream().filter(d -> claims.stream()
-                    .allMatch(o -> o.equals(d) || closures.get(o).containsAll(closures.get(d)))).toList();
+            // a starter that every other claimant brings in whole (itself aside) is the direct route to the artifact;
+            // only starters: a library is declared for its own classes, not for the jars it shares with a starter
+            List<ArtifactId> direct = claims.size() == 1 ? List.copyOf(claims) : claims.stream().filter(d -> starter(d)
+                    && claims.stream().allMatch(o -> o.equals(d)
+                    || closures.get(d).stream().allMatch(x -> x.equals(d)
+                            || !x.equals(o) && closures.get(o).contains(x)))).toList();
             if (direct.size() == 1) {
                 owner.put(a, direct.get(0));
-            } else if (a.groupId().equals("org.springframework.boot") && a.artifactId().startsWith("spring-boot-")) {
-                ArtifactId starter = new ArtifactId(a.groupId(),
-                        "spring-boot-starter-" + a.artifactId().substring("spring-boot-".length()));
-                if (claims.contains(starter)) {
-                    owner.put(a, starter);
-                }
+                return;
+            }
+            List<ArtifactId> starters = claims.stream().filter(s -> bootModule(s) != null
+                    && claims.stream().allMatch(o -> closures.get(o).contains(bootModule(s)))).toList();
+            if (starters.size() == 1) {
+                owner.put(a, starters.get(0));
             }
         });
         closures.keySet().forEach(d -> owner.put(d, d)); // a declared dependency always owns its own jar
         return owner;
+    }
+
+    private static boolean starter(ArtifactId d) {
+        return d.groupId().equals("org.springframework.boot") && d.artifactId().startsWith("spring-boot-starter");
+    }
+
+    /** {@code spring-boot-X} for the Boot starter {@code spring-boot-starter-X}, otherwise null. */
+    private static ArtifactId bootModule(ArtifactId starter) {
+        String prefix = "spring-boot-starter-";
+        return starter.groupId().equals("org.springframework.boot") && starter.artifactId().startsWith(prefix)
+                ? new ArtifactId(starter.groupId(), "spring-boot-" + starter.artifactId().substring(prefix.length()))
+                : null;
     }
 
     /**

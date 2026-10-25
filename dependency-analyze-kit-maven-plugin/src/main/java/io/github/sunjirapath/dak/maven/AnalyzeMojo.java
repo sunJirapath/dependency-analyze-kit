@@ -232,12 +232,18 @@ public class AnalyzeMojo extends AbstractMojo {
         List<ProbeReport> probes = new ArrayList<>();
         File[] files = probeDirectory.listFiles((dir, name) -> name.startsWith("context-") && name.endsWith(".json"));
         long since = session.getStartTime().getTime();
+        int stale = 0;
         for (File f : files == null ? new File[0] : files) {
             if (f.lastModified() >= since) {
                 probes.add(ProbeReport.read(f.toPath(), locations::get));
             } else {
                 getLog().debug("Skipping stale probe report " + f);
+                stale++;
             }
+        }
+        if (stale > 0) {
+            getLog().warn("Skipped " + stale + " probe report(s) in " + probeDirectory + " from an earlier build;"
+                    + " run the tests in the same Maven invocation, e.g. mvn test dependency-analyze-kit:analyze");
         }
         return probes;
     }
