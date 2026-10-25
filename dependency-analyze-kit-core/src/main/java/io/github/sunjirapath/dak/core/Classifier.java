@@ -66,6 +66,11 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-starter-h2console",
             "org.springframework.boot:spring-boot-h2console",
             "io.micrometer:micrometer-tracing-bridge-*",
+            "org.springframework.boot:spring-boot-micrometer-tracing-*",
+            "io.zipkin.reporter2:zipkin-reporter-*",
+            "org.springframework.cloud:spring-cloud-starter-netflix-eureka-*",
+            "org.springframework.cloud:spring-cloud-starter-config",
+            "org.springframework.cloud:spring-cloud-starter-circuitbreaker-*",
             "org.springdoc:springdoc-openapi-starter-*",
             "org.springframework.modulith:spring-modulith-actuator",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-xml",
@@ -94,7 +99,7 @@ public final class Classifier {
         for (String p : List.of("ch.qos.logback:*", "org.apache.logging.log4j:log4j-slf4j2-impl",
                 "org.slf4j:jul-to-slf4j", "org.slf4j:jcl-over-slf4j", "org.slf4j:log4j-over-slf4j",
                 "org.springframework.boot:spring-boot-starter-logging",
-                "org.springframework.boot:spring-boot-starter-log4j2")) {
+                "org.springframework.boot:spring-boot-starter-log4j2", "net.logstash.logback:logstash-logback-encoder")) {
             BUILT_IN_IGNORES.put(p, logging);
         }
         BUILT_IN_IGNORES.put("org.ehcache:ehcache", "JCache provider, loaded through ServiceLoader");
@@ -122,6 +127,7 @@ public final class Classifier {
         BUILT_IN_IGNORES.put("com.twelvemonkeys.imageio:*", "ImageIO plugin, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("org.apache.pdfbox:jbig2-imageio", "ImageIO plugin, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("io.grpc:grpc-netty*", "gRPC transport, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.hibernate.orm:hibernate-vector", "Hibernate type contributor, loaded through ServiceLoader");
         for (String engine : List.of("okhttp", "cio", "apache", "java", "jetty")) {
             BUILT_IN_IGNORES.put("io.ktor:ktor-client-" + engine + "*", "Ktor client engine, loaded through ServiceLoader");
         }

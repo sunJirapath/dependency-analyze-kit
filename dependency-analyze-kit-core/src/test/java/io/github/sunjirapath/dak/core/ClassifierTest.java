@@ -467,6 +467,38 @@ class ClassifierTest {
     }
 
     @Test
+    void cloudClientsTracingAndTypeContributorsAreNotUnused() {
+        ArtifactId eureka = id("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client");
+        ArtifactId eurekaJar = id("org.springframework.cloud:spring-cloud-netflix-eureka-client");
+        ArtifactId config = id("org.springframework.cloud:spring-cloud-starter-config");
+        ArtifactId configJar = id("org.springframework.cloud:spring-cloud-config-client");
+        ArtifactId breaker = id("org.springframework.cloud:spring-cloud-starter-circuitbreaker-reactor-resilience4j");
+        ArtifactId brave = id("org.springframework.boot:spring-boot-micrometer-tracing-brave");
+        ArtifactId zipkin = id("io.zipkin.reporter2:zipkin-reporter-brave");
+        ArtifactId vector = id("org.hibernate.orm:hibernate-vector");
+        ArtifactId logstash = id("net.logstash.logback:logstash-logback-encoder");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(
+                ac("o.s.c.netflix.eureka.EurekaClientAutoConfiguration", true, eurekaJar),
+                ac("o.s.c.config.client.ConfigClientAutoConfiguration", true, configJar),
+                ac("o.s.c.circuitbreaker.resilience4j.ReactiveResilience4JAutoConfiguration", true, breaker),
+                ac("o.s.b.micrometer.tracing.brave.autoconfigure.BraveAutoConfiguration", true, brave),
+                ac("o.s.b.zipkin.autoconfigure.ZipkinWithBraveTracingAutoConfiguration", true, zipkin)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(eureka, "compile"), new Declared(config, "compile"), new Declared(breaker, "compile"),
+                        new Declared(brave, "compile"), new Declared(zipkin, "compile"), new Declared(vector, "compile"),
+                        new Declared(logstash, "compile")),
+                Classifier.owners(Map.of(eureka, Set.of(eureka, eurekaJar), config, Set.of(config, configJar),
+                        breaker, Set.of(breaker), brave, Set.of(brave), zipkin, Set.of(zipkin), vector, Set.of(vector),
+                        logstash, Set.of(logstash)), Set.of()),
+                Map.of(), List.of(probe)));
+        for (ArtifactId a : List.of(eureka, config, breaker, brave, zipkin)) {
+            assertEquals(Verdict.USED_AUTOCONFIG, r.get(a).verdict(), a.toString());
+        }
+        assertEquals(Verdict.IGNORED, r.get(vector).verdict());
+        assertEquals(Verdict.IGNORED, r.get(logstash).verdict());
+    }
+
+    @Test
     void sideEffectStarterIsUsedByMatchedAutoConfig() {
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.actuate.autoconfigure.health.HealthEndpointAutoConfiguration", true, ACTUATOR_AC)),
