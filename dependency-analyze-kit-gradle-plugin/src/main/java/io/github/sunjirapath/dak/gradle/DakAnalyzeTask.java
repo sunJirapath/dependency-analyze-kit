@@ -92,8 +92,12 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             ids.forEach((component, id) -> {
                 if (component instanceof ProjectComponentIdentifier && id != ArtifactId.PROJECT) modules.add(id);
             });
+            List<Classifier.Declared> declared = declared(ids);
+            Map<String, String> scopes = getScopes().get();
+            Set<ArtifactId> runtimeOnly = new HashSet<>();
+            declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
             List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
-                    .classify(declared(ids), Classifier.owners(closures(ids), Set.of()), bytecode(ids), probes);
+                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes);
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             Files.createDirectories(report.toPath().getParent());
             Files.writeString(report.toPath(), Reports.json(results, probes.size()));

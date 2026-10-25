@@ -321,6 +321,27 @@ class ClassifierTest {
     }
 
     @Test
+    void runtimeScopeClaimGivesWayToCompileScopeOwner() {
+        ArtifactId starter = id("org.example:feature-starter-core");
+        ArtifactId jpa = id("org.example:feature-starter-jpa");
+        ArtifactId actuator = id("org.example:feature-actuator");
+        ArtifactId api = id("org.example:feature-api");
+        ArtifactId runtime = id("org.example:feature-runtime");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(
+                starter, Set.of(starter, api, BOOT),
+                jpa, Set.of(jpa, starter, api, BOOT),
+                actuator, Set.of(actuator, runtime, api));
+        assertNull(Classifier.owners(closures, Set.of()).get(api), "actuator reaches api past the starter");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(), Set.of(actuator));
+        assertEquals(starter, owners.get(api));
+
+        Map<ArtifactId, Result> r = byId(classifier.classify(List.of(new Declared(starter, "compile"),
+                new Declared(jpa, "compile"), new Declared(actuator, "runtime")), owners,
+                Map.of(api, Set.of("org.example.feature.Annotated")), List.of()));
+        assertEquals(Verdict.USED_BYTECODE, r.get(starter).verdict());
+    }
+
+    @Test
     void annotationDrivenStartersAreSideEffect() {
         ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
         ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");

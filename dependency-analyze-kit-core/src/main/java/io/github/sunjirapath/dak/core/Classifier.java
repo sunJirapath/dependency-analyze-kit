@@ -198,13 +198,26 @@ public final class Classifier {
      */
     public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures,
                                                      Set<ArtifactId> testScoped) {
+        return owners(closures, testScoped, Set.of());
+    }
+
+    /**
+     * As {@link #owners(Map, Set)}, and claims from runtime-scope dependencies give way to compile-scope ones the
+     * same way: code compiles against an artifact through a compile-scope dependency, never a runtime-only one.
+     *
+     * @param runtimeScoped the declared dependencies with runtime scope
+     */
+    public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures,
+                                                     Set<ArtifactId> testScoped, Set<ArtifactId> runtimeScoped) {
         Map<ArtifactId, Set<ArtifactId>> claimedBy = new HashMap<>();
         closures.forEach((d, c) -> c.forEach(a -> claimedBy.computeIfAbsent(a, k -> new HashSet<>()).add(d)));
         Map<ArtifactId, ArtifactId> owner = new HashMap<>();
         claimedBy.forEach((a, ds) -> {
             Set<ArtifactId> main = new HashSet<>(ds);
             main.removeAll(testScoped);
-            Set<ArtifactId> claims = main.isEmpty() ? ds : main;
+            Set<ArtifactId> compile = new HashSet<>(main);
+            compile.removeAll(runtimeScoped);
+            Set<ArtifactId> claims = !compile.isEmpty() ? compile : main.isEmpty() ? ds : main;
             // the direct route to the artifact: a claimant every other claimant depends on, or a starter that every
             // other claimant brings in whole (itself aside); only starters for the latter: a library is declared for
             // its own classes, not for the jars it shares with a starter

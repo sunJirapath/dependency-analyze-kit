@@ -109,7 +109,7 @@ public class AnalyzeMojo extends AbstractMojo {
                 if (p != project) modules.add(new ArtifactId(p.getGroupId(), p.getArtifactId()));
             }
             List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters, modules)
-                    .classify(declared, Classifier.owners(closures(), testScoped()), bytecode(), probes);
+                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes);
 
             Reports.table(results).lines().forEach(getLog()::info);
             Files.createDirectories(outputDirectory.toPath());
@@ -194,9 +194,9 @@ public class AnalyzeMojo extends AbstractMojo {
         return closures;
     }
 
-    private Set<ArtifactId> testScoped() {
+    private Set<ArtifactId> scoped(String scope) {
         Set<ArtifactId> out = new HashSet<>();
-        project.getDependencies().stream().filter(d -> "test".equals(d.getScope()))
+        project.getDependencies().stream().filter(d -> scope.equals(d.getScope()))
                 .forEach(d -> out.add(new ArtifactId(d.getGroupId(), d.getArtifactId())));
         return out;
     }
