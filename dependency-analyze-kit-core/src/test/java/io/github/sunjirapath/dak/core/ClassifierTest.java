@@ -352,6 +352,22 @@ class ClassifierTest {
     }
 
     @Test
+    void embeddedServerAndKotlinSupportAreNotUnused() {
+        ArtifactId jetty = id("org.springframework.boot:spring-boot-starter-jetty");
+        ArtifactId http2 = id("org.eclipse.jetty.http2:jetty-http2-server");
+        ArtifactId reflect = id("org.jetbrains.kotlin:kotlin-reflect");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.jetty.autoconfigure.JettyServletWebServerAutoConfiguration", true, jetty)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(jetty, "compile"), new Declared(http2, "compile"), new Declared(reflect, "compile")),
+                Classifier.owners(Map.of(jetty, Set.of(jetty), http2, Set.of(http2), reflect, Set.of(reflect)), Set.of()),
+                Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(jetty).verdict());
+        assertEquals(Verdict.IGNORED, r.get(http2).verdict());
+        assertEquals(Verdict.IGNORED, r.get(reflect).verdict());
+    }
+
+    @Test
     void sideEffectStarterIsUsedByMatchedAutoConfig() {
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.actuate.autoconfigure.health.HealthEndpointAutoConfiguration", true, ACTUATOR_AC)),

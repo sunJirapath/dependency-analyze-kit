@@ -69,11 +69,11 @@ public final class Classifier {
             "org.springdoc:springdoc-openapi-starter-*",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-xml",
             "tools.jackson.dataformat:jackson-dataformat-xml",
-            "com.fasterxml.jackson.module:jackson-module-kotlin",
-            "tools.jackson.module:jackson-module-kotlin",
-            "org.jetbrains.kotlin:kotlin-reflect",
-            "org.eclipse.jetty.http2:*",
-            "org.eclipse.jetty:jetty-alpn-*");
+            // embedded server: it runs the app, nothing injects it
+            "org.springframework.boot:spring-boot-starter-jetty",
+            "org.springframework.boot:spring-boot-starter-tomcat",
+            "org.springframework.boot:spring-boot-starter-reactor-netty",
+            "org.springframework.boot:spring-boot-starter-undertow");
 
     /** artifactId words that say nothing about which auto-configuration belongs to a dependency. */
     private static final Set<String> GENERIC_WORDS = Set.of("spring", "boot", "starter", "data", "autoconfigure");
@@ -104,6 +104,16 @@ public final class Classifier {
                 "Thymeleaf dialect, registered by auto-configuration on class presence");
         BUILT_IN_IGNORES.put("org.webjars:*", "static web resources, served from the classpath");
         BUILT_IN_IGNORES.put("org.webjars.npm:*", "static web resources, served from the classpath");
+        // no auto-configuration of their own, so a side-effect entry would never apply
+        for (String p : List.of("com.fasterxml.jackson.module:jackson-module-kotlin",
+                "tools.jackson.module:jackson-module-kotlin", "org.jetbrains.kotlin:kotlin-reflect")) {
+            BUILT_IN_IGNORES.put(p, "Kotlin support, found reflectively by Spring and Jackson");
+        }
+        BUILT_IN_IGNORES.put("org.eclipse.jetty.http2:*", "Jetty protocol module, enabled by server configuration");
+        BUILT_IN_IGNORES.put("org.eclipse.jetty:jetty-alpn-*", "Jetty protocol module, enabled by server configuration");
+        BUILT_IN_IGNORES.put("com.twelvemonkeys.imageio:*", "ImageIO plugin, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.apache.pdfbox:jbig2-imageio", "ImageIO plugin, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("io.grpc:grpc-netty*", "gRPC transport, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
                 "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
