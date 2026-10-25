@@ -308,6 +308,19 @@ class ClassifierTest {
     }
 
     @Test
+    void dependencyThatEveryOtherClaimantPullsInOwnsWhatTheyShare() {
+        ArtifactId sibling = id("com.example:core");
+        ArtifactId feature = id("org.example:feature-starter-jdbc");
+        ArtifactId featureCore = id("org.example:feature-core");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                sibling, Set.of(sibling, feature, featureCore, BOOT, SPRING_WEB),
+                feature, Set.of(feature, featureCore, BOOT)), Set.of());
+        assertEquals(feature, owners.get(featureCore));
+        assertEquals(feature, owners.get(BOOT));
+        assertEquals(sibling, owners.get(SPRING_WEB));
+    }
+
+    @Test
     void annotationDrivenStartersAreSideEffect() {
         ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
         ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");
@@ -338,13 +351,16 @@ class ClassifierTest {
         ArtifactId flyway = id("org.flywaydb:flyway-database-postgresql");
         ArtifactId webjar = id("org.webjars:bootstrap");
         ArtifactId console = id("org.springframework.boot:spring-boot-h2console");
+        ArtifactId ktor = id("io.ktor:ktor-client-okhttp-jvm");
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.h2console.autoconfigure.H2ConsoleAutoConfiguration", true, console)), List.of());
         Map<ArtifactId, Result> r = byId(classifier.classify(
                 List.of(new Declared(jjwt, "runtime"), new Declared(flyway, "compile"),
-                        new Declared(webjar, "compile"), new Declared(console, "compile")),
+                        new Declared(webjar, "compile"), new Declared(console, "compile"),
+                        new Declared(ktor, "compile")),
                 Classifier.owners(Map.of(jjwt, Set.of(jjwt), flyway, Set.of(flyway), webjar, Set.of(webjar),
-                        console, Set.of(console)), Set.of()), Map.of(), List.of(probe)));
+                        console, Set.of(console), ktor, Set.of(ktor)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.IGNORED, r.get(ktor).verdict());
         assertEquals(Verdict.IGNORED, r.get(jjwt).verdict());
         assertEquals(Verdict.IGNORED, r.get(flyway).verdict());
         assertEquals(Verdict.IGNORED, r.get(webjar).verdict());
@@ -356,15 +372,20 @@ class ClassifierTest {
         ArtifactId jetty = id("org.springframework.boot:spring-boot-starter-jetty");
         ArtifactId http2 = id("org.eclipse.jetty.http2:jetty-http2-server");
         ArtifactId reflect = id("org.jetbrains.kotlin:kotlin-reflect");
+        ArtifactId jdk8 = id("org.jetbrains.kotlin:kotlin-stdlib-jdk8");
+        ArtifactId stdlib = id("org.jetbrains.kotlin:kotlin-stdlib");
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.jetty.autoconfigure.JettyServletWebServerAutoConfiguration", true, jetty)), List.of());
         Map<ArtifactId, Result> r = byId(classifier.classify(
-                List.of(new Declared(jetty, "compile"), new Declared(http2, "compile"), new Declared(reflect, "compile")),
-                Classifier.owners(Map.of(jetty, Set.of(jetty), http2, Set.of(http2), reflect, Set.of(reflect)), Set.of()),
-                Map.of(), List.of(probe)));
+                List.of(new Declared(jetty, "compile"), new Declared(http2, "compile"), new Declared(reflect, "compile"),
+                        new Declared(jdk8, "compile")),
+                Classifier.owners(Map.of(jetty, Set.of(jetty), http2, Set.of(http2), reflect, Set.of(reflect, stdlib),
+                        jdk8, Set.of(jdk8, stdlib)), Set.of()),
+                Map.of(stdlib, Set.of("kotlin.Unit")), List.of(probe)));
         assertEquals(Verdict.USED_AUTOCONFIG, r.get(jetty).verdict());
         assertEquals(Verdict.IGNORED, r.get(http2).verdict());
         assertEquals(Verdict.IGNORED, r.get(reflect).verdict());
+        assertEquals(Verdict.IGNORED, r.get(jdk8).verdict());
     }
 
     @Test

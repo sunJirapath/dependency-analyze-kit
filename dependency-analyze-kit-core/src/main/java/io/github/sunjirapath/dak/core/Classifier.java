@@ -114,11 +114,18 @@ public final class Classifier {
                 "tools.jackson.module:jackson-module-kotlin", "org.jetbrains.kotlin:kotlin-reflect")) {
             BUILT_IN_IGNORES.put(p, "Kotlin support, found reflectively by Spring and Jackson");
         }
+        // shortcut: kotlin-stdlib, shared with every other Kotlin library, has no single owner, so its evidence never
+        // reaches these; credit a lone re-export claimant if more such jars turn up
+        BUILT_IN_IGNORES.put("org.jetbrains.kotlin:kotlin-stdlib-jdk*",
+                "merged into kotlin-stdlib since Kotlin 1.8, kept as the route to it");
         BUILT_IN_IGNORES.put("org.eclipse.jetty.http2:*", "Jetty protocol module, enabled by server configuration");
         BUILT_IN_IGNORES.put("org.eclipse.jetty:jetty-alpn-*", "Jetty protocol module, enabled by server configuration");
         BUILT_IN_IGNORES.put("com.twelvemonkeys.imageio:*", "ImageIO plugin, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("org.apache.pdfbox:jbig2-imageio", "ImageIO plugin, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("io.grpc:grpc-netty*", "gRPC transport, loaded through ServiceLoader");
+        for (String engine : List.of("okhttp", "cio", "apache", "java", "jetty")) {
+            BUILT_IN_IGNORES.put("io.ktor:ktor-client-" + engine + "*", "Ktor client engine, loaded through ServiceLoader");
+        }
         BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
                 "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
@@ -181,10 +188,12 @@ public final class Classifier {
             Set<ArtifactId> main = new HashSet<>(ds);
             main.removeAll(testScoped);
             Set<ArtifactId> claims = main.isEmpty() ? ds : main;
-            // a starter that every other claimant brings in whole (itself aside) is the direct route to the artifact;
-            // only starters: a library is declared for its own classes, not for the jars it shares with a starter
-            List<ArtifactId> direct = claims.size() == 1 ? List.copyOf(claims) : claims.stream().filter(d -> starter(d)
-                    && claims.stream().allMatch(o -> o.equals(d)
+            // the direct route to the artifact: a claimant every other claimant depends on, or a starter that every
+            // other claimant brings in whole (itself aside); only starters for the latter: a library is declared for
+            // its own classes, not for the jars it shares with a starter
+            List<ArtifactId> direct = claims.size() == 1 ? List.copyOf(claims) : claims.stream().filter(d ->
+                    claims.stream().allMatch(o -> o.equals(d) || closures.get(o).contains(d))
+                    || starter(d) && claims.stream().allMatch(o -> o.equals(d)
                     || closures.get(d).stream().allMatch(x -> x.equals(d)
                             || !x.equals(o) && closures.get(o).contains(x)))).toList();
             if (direct.size() == 1) {
