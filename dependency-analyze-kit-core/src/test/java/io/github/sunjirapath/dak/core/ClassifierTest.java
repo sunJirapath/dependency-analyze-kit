@@ -368,6 +368,24 @@ class ClassifierTest {
     }
 
     @Test
+    void webStarterAndPresenceProvidersAreUsedByMatchedAutoConfig() {
+        ArtifactId webmvc = id("org.springframework.boot:spring-boot-starter-webmvc");
+        ArtifactId modulith = id("org.springframework.modulith:spring-modulith-actuator");
+        ArtifactId redis = id("cn.dev33:sa-token-redis-template");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(
+                ac("o.s.b.webmvc.autoconfigure.WebMvcAutoConfiguration", true, webmvc),
+                ac("o.s.modulith.actuator.autoconfigure.ApplicationModulesEndpointConfiguration", true, modulith),
+                ac("cn.dev33.satoken.dao.SaTokenDaoForRedisTemplate", true, redis)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(webmvc, "compile"), new Declared(modulith, "runtime"), new Declared(redis, "compile")),
+                Classifier.owners(Map.of(webmvc, Set.of(webmvc), modulith, Set.of(modulith), redis, Set.of(redis)), Set.of()),
+                Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(webmvc).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(modulith).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(redis).verdict());
+    }
+
+    @Test
     void sideEffectStarterIsUsedByMatchedAutoConfig() {
         ProbeReport probe = new ProbeReport("app", true, List.of(),
                 List.of(ac("o.s.b.actuate.autoconfigure.health.HealthEndpointAutoConfiguration", true, ACTUATOR_AC)),

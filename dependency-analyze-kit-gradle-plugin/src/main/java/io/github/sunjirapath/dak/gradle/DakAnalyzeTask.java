@@ -17,8 +17,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
-import java.util.jar.JarFile;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
@@ -173,21 +171,13 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     private Map<ArtifactId, Set<String>> bytecode(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {
         Set<Path> roots = new HashSet<>();
         for (File file : getProjectClasses().getFiles()) roots.add(file.toPath());
-        Set<String> references = ClassReferenceScanner.scan(roots);
-        Map<ArtifactId, Set<String>> out = new HashMap<>();
+        Map<ArtifactId, Path> jars = new LinkedHashMap<>();
         for (ResolvedArtifactResult artifact : getArtifacts().get()) {
             ArtifactId id = ids.get(artifact.getId().getComponentIdentifier());
             File file = artifact.getFile();
-            if (id == null || !file.isFile() || !file.getName().endsWith(".jar")) continue;
-            try (JarFile jar = new JarFile(file)) {
-                for (String reference : references) {
-                    if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
-                        out.computeIfAbsent(id, ignored -> new TreeSet<>()).add(reference);
-                    }
-                }
-            }
+            if (id != null && file.isFile() && file.getName().endsWith(".jar")) jars.putIfAbsent(id, file.toPath());
         }
-        return out;
+        return ClassReferenceScanner.owners(ClassReferenceScanner.scan(roots), jars);
     }
 
     private Map<String, ArtifactId> locations(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {

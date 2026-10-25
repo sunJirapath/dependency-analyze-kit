@@ -60,6 +60,7 @@ public final class Classifier {
             "com.github.ben-manes.caffeine:caffeine",
             "io.github.openfeign:feign-okhttp",
             "io.github.openfeign:feign-hc5",
+            "cn.dev33:sa-token-redis*",
             // switched on by presence or configuration alone: UIs, exporters, codecs, protocols
             "org.springframework.boot:spring-boot-starter-opentelemetry",
             "org.springframework.boot:spring-boot-starter-h2console",
@@ -67,9 +68,13 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-properties-migrator",
             "io.micrometer:micrometer-tracing-bridge-*",
             "org.springdoc:springdoc-openapi-starter-*",
+            "org.springframework.modulith:spring-modulith-actuator",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-xml",
             "tools.jackson.dataformat:jackson-dataformat-xml",
-            // embedded server: it runs the app, nothing injects it
+            // embedded server and web framework: they run the app, nothing injects them
+            "org.springframework.boot:spring-boot-starter-web",
+            "org.springframework.boot:spring-boot-starter-webmvc",
+            "org.springframework.boot:spring-boot-starter-webflux",
             "org.springframework.boot:spring-boot-starter-jetty",
             "org.springframework.boot:spring-boot-starter-tomcat",
             "org.springframework.boot:spring-boot-starter-reactor-netty",
