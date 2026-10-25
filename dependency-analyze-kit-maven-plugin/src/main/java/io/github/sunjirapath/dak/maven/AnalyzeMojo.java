@@ -104,7 +104,11 @@ public class AnalyzeMojo extends AbstractMojo {
                             d.getScope() == null ? "compile" : d.getScope()))
                     .distinct()
                     .toList();
-            List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters)
+            Set<ArtifactId> modules = new HashSet<>();
+            for (MavenProject p : session.getAllProjects()) {
+                if (p != project) modules.add(new ArtifactId(p.getGroupId(), p.getArtifactId()));
+            }
+            List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters, modules)
                     .classify(declared, Classifier.owners(closures(), testScoped()), bytecode(), probes);
 
             Reports.table(results).lines().forEach(getLog()::info);

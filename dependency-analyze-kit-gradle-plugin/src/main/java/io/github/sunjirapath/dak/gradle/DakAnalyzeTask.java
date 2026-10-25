@@ -21,6 +21,7 @@ import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.result.DependencyResult;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.artifacts.result.ResolvedComponentResult;
@@ -87,7 +88,11 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             Map<ComponentIdentifier, ArtifactId> ids = ids();
             Map<String, ArtifactId> locations = locations(ids);
             List<ProbeReport> probes = probes(locations);
-            List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get())
+            Set<ArtifactId> modules = new HashSet<>();
+            ids.forEach((component, id) -> {
+                if (component instanceof ProjectComponentIdentifier && id != ArtifactId.PROJECT) modules.add(id);
+            });
+            List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
                     .classify(declared(ids), Classifier.owners(closures(ids), Set.of()), bytecode(ids), probes);
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             Files.createDirectories(report.toPath().getParent());

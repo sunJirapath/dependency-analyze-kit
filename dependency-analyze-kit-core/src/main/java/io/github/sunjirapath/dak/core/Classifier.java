@@ -65,7 +65,6 @@ public final class Classifier {
             "org.springframework.boot:spring-boot-starter-opentelemetry",
             "org.springframework.boot:spring-boot-starter-h2console",
             "org.springframework.boot:spring-boot-h2console",
-            "org.springframework.boot:spring-boot-properties-migrator",
             "io.micrometer:micrometer-tracing-bridge-*",
             "org.springdoc:springdoc-openapi-starter-*",
             "org.springframework.modulith:spring-modulith-actuator",
@@ -126,6 +125,14 @@ public final class Classifier {
         for (String engine : List.of("okhttp", "cio", "apache", "java", "jetty")) {
             BUILT_IN_IGNORES.put("io.ktor:ktor-client-" + engine + "*", "Ktor client engine, loaded through ServiceLoader");
         }
+        BUILT_IN_IGNORES.put("software.amazon.awssdk:sts",
+                "STS credentials provider, loaded reflectively by the AWS SDK default credentials chain");
+        // shortcut: mcp-core, shared with mcp-spring-*, has no single owner, so the bundle never gets its evidence;
+        // credit a lone re-export claimant if more such bundles turn up
+        BUILT_IN_IGNORES.put("io.modelcontextprotocol.sdk:mcp", "MCP SDK bundle, kept as the route to mcp-core");
+        BUILT_IN_IGNORES.put("io.modelcontextprotocol.sdk:mcp-json-jackson*", "MCP JSON mapper, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-properties-migrator",
+                "ApplicationListener registered through spring.factories, reports renamed properties at startup");
         BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
                 "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
@@ -141,14 +148,24 @@ public final class Classifier {
 
     private final List<String> ignored;
     private final List<String> sideEffect;
+    private final Set<ArtifactId> modules;
 
     /** Patterns are {@code groupId:artifactId} with {@code *} wildcards; they extend the built-in lists. */
     public Classifier(Collection<String> ignored, Collection<String> sideEffect) {
+        this(ignored, sideEffect, Set.of());
+    }
+
+    /**
+     * @param modules sibling modules of the same build: their beans are project code, picked up by component scan,
+     *                so they count as project beans and credit the module
+     */
+    public Classifier(Collection<String> ignored, Collection<String> sideEffect, Set<ArtifactId> modules) {
         ignored.forEach(Classifier::requireGroupArtifact);
         sideEffect.forEach(Classifier::requireGroupArtifact);
         this.ignored = List.copyOf(ignored);
         this.sideEffect = new ArrayList<>(BUILT_IN_SIDE_EFFECT);
         this.sideEffect.addAll(sideEffect);
+        this.modules = Set.copyOf(modules);
     }
 
     /** A bare artifact name never matches {@link ArtifactId#matches}; fail loudly instead of ignoring nothing. */
@@ -245,7 +262,7 @@ public final class Classifier {
                                 ac.name() + " did not match: " + String.join("; ", ac.messages())));
             }
         }
-        beanEvidence(probes, found, owner);
+        beanEvidence(probes, found, owner, modules);
 
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
@@ -294,7 +311,7 @@ public final class Classifier {
 
     /** Credits beans reachable from a project bean through injection / depends-on edges. */
     private static void beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
-                                     Map<ArtifactId, ArtifactId> owner) {
+                                     Map<ArtifactId, ArtifactId> owner, Set<ArtifactId> modules) {
         Map<String, List<Integer>> contextsByKey = new HashMap<>();
         Map<BeanKey, ProbeReport.Bean> beans = new LinkedHashMap<>();
         for (int i = 0; i < probes.size(); i++) {
@@ -310,6 +327,10 @@ public final class Classifier {
         beans.forEach((key, bean) -> {
             if (bean.artifacts().contains(ArtifactId.PROJECT)) {
                 roots.add(key);
+            } else if (bean.artifacts().stream().anyMatch(modules::contains)) {
+                roots.add(key);
+                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
+                        "bean '" + key.name() + "' (" + bean.type() + ") of a project module"));
             }
             if (bean.factoryBean() != null) {
                 for (BeanKey factory : resolveBeans(key.context(), bean.factoryBean(), probes, contextsByKey, beans)) {

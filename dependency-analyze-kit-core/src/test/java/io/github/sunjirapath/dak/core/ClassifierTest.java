@@ -368,6 +368,45 @@ class ClassifierTest {
     }
 
     @Test
+    void reflectivelyLoadedSdkPartsAreIgnored() {
+        ArtifactId sts = id("software.amazon.awssdk:sts");
+        ArtifactId mcp = id("io.modelcontextprotocol.sdk:mcp");
+        ArtifactId mcpJson = id("io.modelcontextprotocol.sdk:mcp-json-jackson3");
+        ArtifactId migrator = id("org.springframework.boot:spring-boot-properties-migrator");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.SomeAutoConfiguration", true, migrator)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(sts, "runtime"), new Declared(mcp, "compile"),
+                        new Declared(mcpJson, "compile"), new Declared(migrator, "runtime")),
+                Classifier.owners(Map.of(sts, Set.of(sts), mcp, Set.of(mcp), mcpJson, Set.of(mcpJson),
+                        migrator, Set.of(migrator)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.IGNORED, r.get(sts).verdict());
+        assertEquals(Verdict.IGNORED, r.get(mcp).verdict());
+        assertEquals(Verdict.IGNORED, r.get(mcpJson).verdict());
+        assertEquals(Verdict.IGNORED, r.get(migrator).verdict());
+    }
+
+    @Test
+    void siblingModuleBeansAreProjectBeans() {
+        ArtifactId module = id("com.example:feature");
+        ArtifactId lib = id("com.example:lib");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(), List.of(
+                bean("featureService", "com.example.FeatureService", null, List.of("client"), module),
+                bean("client", "com.example.Client", null, List.of(), lib)));
+        List<Declared> declared = List.of(new Declared(module, "compile"), new Declared(lib, "compile"));
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(module, Set.of(module), lib, Set.of(lib));
+
+        Map<ArtifactId, Result> r = byId(new Classifier(List.of(), List.of(), Set.of(module)).classify(
+                declared, Classifier.owners(closures, Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_BEAN, r.get(module).verdict());
+        assertEquals(Verdict.USED_BEAN, r.get(lib).verdict());
+
+        Map<ArtifactId, Result> without = byId(classifier.classify(
+                declared, Classifier.owners(closures, Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.UNUSED_CANDIDATE, without.get(module).verdict());
+    }
+
+    @Test
     void embeddedServerAndKotlinSupportAreNotUnused() {
         ArtifactId jetty = id("org.springframework.boot:spring-boot-starter-jetty");
         ArtifactId http2 = id("org.eclipse.jetty.http2:jetty-http2-server");
