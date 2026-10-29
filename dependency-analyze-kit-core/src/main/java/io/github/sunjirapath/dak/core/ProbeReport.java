@@ -7,7 +7,6 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -28,8 +27,8 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
     public record Bean(String name, String type, Set<ArtifactId> artifacts, String factoryBean, List<String> dependencies) {}
 
     /**
-     * Reads one probe file. {@code locate} maps a recorded class location (jar file or classes directory)
-     * to its artifact, {@link ArtifactId#PROJECT} for the project's own output, or null when unknown.
+     * Reads one probe file. {@code locate} maps a class location (jar file or classes directory), as recorded or as
+     * keyed by {@link #location}, to its artifact, {@link ArtifactId#PROJECT} for the project's own output, or null when unknown.
      */
     public static ProbeReport read(Path file, Function<String, ArtifactId> locate) throws IOException {
         Map<String, Object> m = JSON.std.mapFrom(Files.readString(file));
@@ -48,9 +47,25 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
                         .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"));
     }
 
+    /**
+     * The key a class location is looked up by: its real path. {@code getCanonicalPath} resolves links on Windows only
+     * from JDK 24, so a test JVM and a build JVM on different JDKs would key a jar under a junction differently.
+     */
+    public static String location(Path path) {
+        try {
+            return path.toRealPath().toString();
+        } catch (IOException e) {
+            return path.toAbsolutePath().normalize().toString();
+        }
+    }
+
     private static Set<ArtifactId> artifacts(Object locations, Function<String, ArtifactId> locate) {
         Set<ArtifactId> out = new LinkedHashSet<>();
-        strings(locations).stream().map(locate).filter(Objects::nonNull).forEach(out::add);
+        for (String s : strings(locations)) {
+            ArtifactId id = locate.apply(s);
+            if (id == null) id = locate.apply(location(Path.of(s)));
+            if (id != null) out.add(id);
+        }
         return out;
     }
 

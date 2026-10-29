@@ -4,8 +4,14 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.jar.JarFile;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -30,6 +36,45 @@ public final class ClassReferenceScanner {
             }
         }
         return references;
+    }
+
+    /**
+     * Credits each reference to one jar: the one whose groupId shares the most leading package segments with it,
+     * else the first on the classpath. A fat or shaded jar that bundles another library's classes is not credited.
+     */
+    public static Map<ArtifactId, Set<String>> owners(Set<String> references, Map<ArtifactId, Path> jars)
+            throws IOException {
+        Map<String, List<ArtifactId>> holders = new HashMap<>();
+        for (Map.Entry<ArtifactId, Path> e : jars.entrySet()) {
+            try (JarFile jar = new JarFile(e.getValue().toFile())) {
+                for (String reference : references) {
+                    if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
+                        holders.computeIfAbsent(reference, k -> new ArrayList<>()).add(e.getKey());
+                    }
+                }
+            }
+        }
+        Map<ArtifactId, Set<String>> out = new HashMap<>();
+        holders.forEach((reference, ids) -> {
+            ArtifactId best = ids.get(0);
+            for (ArtifactId id : ids) {
+                if (sharedSegments(id.groupId(), reference) > sharedSegments(best.groupId(), reference)) {
+                    best = id;
+                }
+            }
+            out.computeIfAbsent(best, k -> new TreeSet<>()).add(reference);
+        });
+        return out;
+    }
+
+    private static int sharedSegments(String groupId, String className) {
+        String[] a = groupId.split("\\.");
+        String[] b = className.split("\\.");
+        int n = 0;
+        while (n < a.length && n < b.length && a[n].equals(b[n])) {
+            n++;
+        }
+        return n;
     }
 
     private static Set<String> scanClass(Path file) throws IOException {

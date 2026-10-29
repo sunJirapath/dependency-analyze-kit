@@ -17,12 +17,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
-import java.util.jar.JarFile;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.result.DependencyResult;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.artifacts.result.ResolvedComponentResult;
@@ -89,8 +88,16 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             Map<ComponentIdentifier, ArtifactId> ids = ids();
             Map<String, ArtifactId> locations = locations(ids);
             List<ProbeReport> probes = probes(locations);
-            List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get())
-                    .classify(declared(ids), Classifier.owners(closures(ids), Set.of()), bytecode(ids), probes);
+            Set<ArtifactId> modules = new HashSet<>();
+            ids.forEach((component, id) -> {
+                if (component instanceof ProjectComponentIdentifier && id != ArtifactId.PROJECT) modules.add(id);
+            });
+            List<Classifier.Declared> declared = declared(ids);
+            Map<String, String> scopes = getScopes().get();
+            Set<ArtifactId> runtimeOnly = new HashSet<>();
+            declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
+            List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
+                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes);
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             Files.createDirectories(report.toPath().getParent());
             Files.writeString(report.toPath(), Reports.json(results, probes.size()));
@@ -173,30 +180,22 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     private Map<ArtifactId, Set<String>> bytecode(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {
         Set<Path> roots = new HashSet<>();
         for (File file : getProjectClasses().getFiles()) roots.add(file.toPath());
-        Set<String> references = ClassReferenceScanner.scan(roots);
-        Map<ArtifactId, Set<String>> out = new HashMap<>();
+        Map<ArtifactId, Path> jars = new LinkedHashMap<>();
         for (ResolvedArtifactResult artifact : getArtifacts().get()) {
             ArtifactId id = ids.get(artifact.getId().getComponentIdentifier());
             File file = artifact.getFile();
-            if (id == null || !file.isFile() || !file.getName().endsWith(".jar")) continue;
-            try (JarFile jar = new JarFile(file)) {
-                for (String reference : references) {
-                    if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
-                        out.computeIfAbsent(id, ignored -> new TreeSet<>()).add(reference);
-                    }
-                }
-            }
+            if (id != null && file.isFile() && file.getName().endsWith(".jar")) jars.putIfAbsent(id, file.toPath());
         }
-        return out;
+        return ClassReferenceScanner.owners(ClassReferenceScanner.scan(roots), jars);
     }
 
     private Map<String, ArtifactId> locations(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {
         Map<String, ArtifactId> out = new HashMap<>();
         for (ResolvedArtifactResult artifact : getArtifacts().get()) {
             ArtifactId id = ids.get(artifact.getId().getComponentIdentifier());
-            if (id != null) out.put(artifact.getFile().getCanonicalPath(), id);
+            if (id != null) out.put(ProbeReport.location(artifact.getFile().toPath()), id);
         }
-        for (File directory : getProjectClasses().getFiles()) out.put(directory.getCanonicalPath(), ArtifactId.PROJECT);
+        for (File directory : getProjectClasses().getFiles()) out.put(ProbeReport.location(directory.toPath()), ArtifactId.PROJECT);
         return out;
     }
 

@@ -104,8 +104,12 @@ public class AnalyzeMojo extends AbstractMojo {
                             d.getScope() == null ? "compile" : d.getScope()))
                     .distinct()
                     .toList();
-            List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters)
-                    .classify(declared, Classifier.owners(closures(), testScoped()), bytecode(), probes);
+            Set<ArtifactId> modules = new HashSet<>();
+            for (MavenProject p : session.getAllProjects()) {
+                if (p != project) modules.add(new ArtifactId(p.getGroupId(), p.getArtifactId()));
+            }
+            List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters, modules)
+                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes);
 
             Reports.table(results).lines().forEach(getLog()::info);
             Files.createDirectories(outputDirectory.toPath());
@@ -132,7 +136,9 @@ public class AnalyzeMojo extends AbstractMojo {
                     out.computeIfAbsent(id(a), k -> new TreeSet<>()).add(u.getDependencyClass())));
         }
         try {
-            annotationReferences().forEach((artifact, classes) ->
+            Set<String> attributed = new HashSet<>();
+            out.values().forEach(attributed::addAll);
+            annotationReferences(attributed).forEach((artifact, classes) ->
                     out.computeIfAbsent(artifact, k -> new TreeSet<>()).addAll(classes));
         } catch (IOException e) {
             getLog().warn("Could not scan annotation type references: " + e.getMessage());
@@ -145,25 +151,18 @@ public class AnalyzeMojo extends AbstractMojo {
      * Annotations such as {@code @EnableFeignClients} are starter usage even though they are not instructions in a
      * method body, and therefore are not always reported by the default analyzer.
      */
-    private Map<ArtifactId, Set<String>> annotationReferences() throws IOException {
+    private Map<ArtifactId, Set<String>> annotationReferences(Set<String> attributed) throws IOException {
         Set<String> references = ClassReferenceScanner.scan(List.of(
                 Path.of(project.getBuild().getOutputDirectory()), Path.of(project.getBuild().getTestOutputDirectory())));
-        Map<ArtifactId, Set<String>> out = new HashMap<>();
+        references.removeAll(attributed);
+        Map<ArtifactId, Path> jars = new LinkedHashMap<>();
         for (Artifact artifact : project.getArtifacts()) {
             File file = artifact.getFile();
-            if (file == null || !file.isFile() || !file.getName().endsWith(".jar")) {
-                continue;
-            }
-            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(file)) {
-                ArtifactId id = id(artifact);
-                for (String reference : references) {
-                    if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
-                        out.computeIfAbsent(id, k -> new TreeSet<>()).add(reference);
-                    }
-                }
+            if (file != null && file.isFile() && file.getName().endsWith(".jar")) {
+                jars.putIfAbsent(id(artifact), file.toPath());
             }
         }
-        return out;
+        return ClassReferenceScanner.owners(references, jars);
     }
 
     /**
@@ -195,9 +194,9 @@ public class AnalyzeMojo extends AbstractMojo {
         return closures;
     }
 
-    private Set<ArtifactId> testScoped() {
+    private Set<ArtifactId> scoped(String scope) {
         Set<ArtifactId> out = new HashSet<>();
-        project.getDependencies().stream().filter(d -> "test".equals(d.getScope()))
+        project.getDependencies().stream().filter(d -> scope.equals(d.getScope()))
                 .forEach(d -> out.add(new ArtifactId(d.getGroupId(), d.getArtifactId())));
         return out;
     }
@@ -214,16 +213,16 @@ public class AnalyzeMojo extends AbstractMojo {
                 .forEach(c -> collect(c, into));
     }
 
-    /** Canonical jar or classes-directory path to artifact; the project's own output maps to PROJECT. */
+    /** Real jar or classes-directory path to artifact; the project's own output maps to PROJECT. */
     private Map<String, ArtifactId> locations() throws IOException {
         Map<String, ArtifactId> out = new HashMap<>();
         for (Artifact a : project.getArtifacts()) {
             if (a.getFile() != null) {
-                out.put(a.getFile().getCanonicalPath(), id(a));
+                out.put(ProbeReport.location(a.getFile().toPath()), id(a));
             }
         }
-        out.put(new File(project.getBuild().getOutputDirectory()).getCanonicalPath(), ArtifactId.PROJECT);
-        out.put(new File(project.getBuild().getTestOutputDirectory()).getCanonicalPath(), ArtifactId.PROJECT);
+        out.put(ProbeReport.location(Path.of(project.getBuild().getOutputDirectory())), ArtifactId.PROJECT);
+        out.put(ProbeReport.location(Path.of(project.getBuild().getTestOutputDirectory())), ArtifactId.PROJECT);
         return out;
     }
 
@@ -232,12 +231,18 @@ public class AnalyzeMojo extends AbstractMojo {
         List<ProbeReport> probes = new ArrayList<>();
         File[] files = probeDirectory.listFiles((dir, name) -> name.startsWith("context-") && name.endsWith(".json"));
         long since = session.getStartTime().getTime();
+        int stale = 0;
         for (File f : files == null ? new File[0] : files) {
             if (f.lastModified() >= since) {
                 probes.add(ProbeReport.read(f.toPath(), locations::get));
             } else {
                 getLog().debug("Skipping stale probe report " + f);
+                stale++;
             }
+        }
+        if (stale > 0) {
+            getLog().warn("Skipped " + stale + " probe report(s) in " + probeDirectory + " from an earlier build;"
+                    + " run the tests in the same Maven invocation, e.g. mvn test dependency-analyze-kit:analyze");
         }
         return probes;
     }

@@ -60,19 +60,29 @@ public final class Classifier {
             "com.github.ben-manes.caffeine:caffeine",
             "io.github.openfeign:feign-okhttp",
             "io.github.openfeign:feign-hc5",
+            "cn.dev33:sa-token-redis*",
             // switched on by presence or configuration alone: UIs, exporters, codecs, protocols
             "org.springframework.boot:spring-boot-starter-opentelemetry",
             "org.springframework.boot:spring-boot-starter-h2console",
-            "org.springframework.boot:spring-boot-properties-migrator",
+            "org.springframework.boot:spring-boot-h2console",
             "io.micrometer:micrometer-tracing-bridge-*",
+            "org.springframework.boot:spring-boot-micrometer-tracing-*",
+            "io.zipkin.reporter2:zipkin-reporter-*",
+            "org.springframework.cloud:spring-cloud-starter-netflix-eureka-*",
+            "org.springframework.cloud:spring-cloud-starter-config",
+            "org.springframework.cloud:spring-cloud-starter-circuitbreaker-*",
             "org.springdoc:springdoc-openapi-starter-*",
+            "org.springframework.modulith:spring-modulith-actuator",
             "com.fasterxml.jackson.dataformat:jackson-dataformat-xml",
             "tools.jackson.dataformat:jackson-dataformat-xml",
-            "com.fasterxml.jackson.module:jackson-module-kotlin",
-            "tools.jackson.module:jackson-module-kotlin",
-            "org.jetbrains.kotlin:kotlin-reflect",
-            "org.eclipse.jetty.http2:*",
-            "org.eclipse.jetty:jetty-alpn-*");
+            // embedded server and web framework: they run the app, nothing injects them
+            "org.springframework.boot:spring-boot-starter-web",
+            "org.springframework.boot:spring-boot-starter-webmvc",
+            "org.springframework.boot:spring-boot-starter-webflux",
+            "org.springframework.boot:spring-boot-starter-jetty",
+            "org.springframework.boot:spring-boot-starter-tomcat",
+            "org.springframework.boot:spring-boot-starter-reactor-netty",
+            "org.springframework.boot:spring-boot-starter-undertow");
 
     /** artifactId words that say nothing about which auto-configuration belongs to a dependency. */
     private static final Set<String> GENERIC_WORDS = Set.of("spring", "boot", "starter", "data", "autoconfigure");
@@ -89,11 +99,46 @@ public final class Classifier {
         for (String p : List.of("ch.qos.logback:*", "org.apache.logging.log4j:log4j-slf4j2-impl",
                 "org.slf4j:jul-to-slf4j", "org.slf4j:jcl-over-slf4j", "org.slf4j:log4j-over-slf4j",
                 "org.springframework.boot:spring-boot-starter-logging",
-                "org.springframework.boot:spring-boot-starter-log4j2")) {
+                "org.springframework.boot:spring-boot-starter-log4j2", "net.logstash.logback:logstash-logback-encoder")) {
             BUILT_IN_IGNORES.put(p, logging);
         }
         BUILT_IN_IGNORES.put("org.ehcache:ehcache", "JCache provider, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("org.apache.commons:commons-pool2", "connection pool, switched on by class presence");
+        for (String p : List.of("io.jsonwebtoken:jjwt-impl", "io.jsonwebtoken:jjwt-jackson", "io.jsonwebtoken:jjwt-gson")) {
+            BUILT_IN_IGNORES.put(p, "implementation loaded through ServiceLoader");
+        }
+        BUILT_IN_IGNORES.put("org.flywaydb:flyway-database-*", "Flyway database support, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.flywaydb:flyway-mysql", "Flyway database support, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.thymeleaf.extras:thymeleaf-extras-springsecurity*",
+                "Thymeleaf dialect, registered by auto-configuration on class presence");
+        BUILT_IN_IGNORES.put("org.webjars:*", "static web resources, served from the classpath");
+        BUILT_IN_IGNORES.put("org.webjars.npm:*", "static web resources, served from the classpath");
+        // no auto-configuration of their own, so a side-effect entry would never apply
+        for (String p : List.of("com.fasterxml.jackson.module:jackson-module-kotlin",
+                "tools.jackson.module:jackson-module-kotlin", "org.jetbrains.kotlin:kotlin-reflect")) {
+            BUILT_IN_IGNORES.put(p, "Kotlin support, found reflectively by Spring and Jackson");
+        }
+        // shortcut: kotlin-stdlib, shared with every other Kotlin library, has no single owner, so its evidence never
+        // reaches these; credit a lone re-export claimant if more such jars turn up
+        BUILT_IN_IGNORES.put("org.jetbrains.kotlin:kotlin-stdlib-jdk*",
+                "merged into kotlin-stdlib since Kotlin 1.8, kept as the route to it");
+        BUILT_IN_IGNORES.put("org.eclipse.jetty.http2:*", "Jetty protocol module, enabled by server configuration");
+        BUILT_IN_IGNORES.put("org.eclipse.jetty:jetty-alpn-*", "Jetty protocol module, enabled by server configuration");
+        BUILT_IN_IGNORES.put("com.twelvemonkeys.imageio:*", "ImageIO plugin, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.apache.pdfbox:jbig2-imageio", "ImageIO plugin, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("io.grpc:grpc-netty*", "gRPC transport, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.hibernate.orm:hibernate-vector", "Hibernate type contributor, loaded through ServiceLoader");
+        for (String engine : List.of("okhttp", "cio", "apache", "java", "jetty")) {
+            BUILT_IN_IGNORES.put("io.ktor:ktor-client-" + engine + "*", "Ktor client engine, loaded through ServiceLoader");
+        }
+        BUILT_IN_IGNORES.put("software.amazon.awssdk:sts",
+                "STS credentials provider, loaded reflectively by the AWS SDK default credentials chain");
+        // shortcut: mcp-core, shared with mcp-spring-*, has no single owner, so the bundle never gets its evidence;
+        // credit a lone re-export claimant if more such bundles turn up
+        BUILT_IN_IGNORES.put("io.modelcontextprotocol.sdk:mcp", "MCP SDK bundle, kept as the route to mcp-core");
+        BUILT_IN_IGNORES.put("io.modelcontextprotocol.sdk:mcp-json-jackson*", "MCP JSON mapper, loaded through ServiceLoader");
+        BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-properties-migrator",
+                "ApplicationListener registered through spring.factories, reports renamed properties at startup");
         BUILT_IN_IGNORES.put("io.github.openfeign:feign-micrometer",
                 "Feign capability, applied in per-client contexts the probe does not see");
         BUILT_IN_IGNORES.put("org.springframework.boot:spring-boot-configuration-processor", "annotation processor");
@@ -109,14 +154,24 @@ public final class Classifier {
 
     private final List<String> ignored;
     private final List<String> sideEffect;
+    private final Set<ArtifactId> modules;
 
     /** Patterns are {@code groupId:artifactId} with {@code *} wildcards; they extend the built-in lists. */
     public Classifier(Collection<String> ignored, Collection<String> sideEffect) {
+        this(ignored, sideEffect, Set.of());
+    }
+
+    /**
+     * @param modules sibling modules of the same build: their beans are project code, picked up by component scan,
+     *                so they count as project beans and credit the module
+     */
+    public Classifier(Collection<String> ignored, Collection<String> sideEffect, Set<ArtifactId> modules) {
         ignored.forEach(Classifier::requireGroupArtifact);
         sideEffect.forEach(Classifier::requireGroupArtifact);
         this.ignored = List.copyOf(ignored);
         this.sideEffect = new ArrayList<>(BUILT_IN_SIDE_EFFECT);
         this.sideEffect.addAll(sideEffect);
+        this.modules = Set.copyOf(modules);
     }
 
     /** A bare artifact name never matches {@link ArtifactId#matches}; fail loudly instead of ignoring nothing. */
@@ -136,39 +191,71 @@ public final class Classifier {
      * main-scope dependency claims it too. Otherwise {@code spring-boot-starter-test}, which pulls in
      * {@code spring-boot-starter}, would make every Boot jar shared.
      *
-     * <p>When one claimant's whole closure is inside every other claimant's (a starter that a declared library
-     * also pulls in), that claimant owns the artifact: it is how the project gets it directly.
+     * <p>When one Boot starter's whole closure, the starter itself aside, is inside every other claimant's (a starter
+     * that a declared library also pulls in, or one whose jars another starter also brings), that starter owns
+     * the artifact: it is how the project gets it directly.
      *
-     * <p>Otherwise a Boot module {@code spring-boot-X} belongs to a claimant {@code spring-boot-starter-X}: Boot 4
-     * splits each starter into a module that libraries (springdoc, other starters) often pull in as well.
+     * <p>Otherwise the artifact belongs to a claimant {@code spring-boot-starter-X} when every claimant pulls in the
+     * Boot module {@code spring-boot-X}: Boot 4 splits each starter into a module that libraries (springdoc, other
+     * starters) often pull in as well, and those reach the artifact through it.
      *
      * @param closures   each declared dependency to its transitive closure
      * @param testScoped the declared dependencies with test scope
      */
     public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures,
                                                      Set<ArtifactId> testScoped) {
+        return owners(closures, testScoped, Set.of());
+    }
+
+    /**
+     * As {@link #owners(Map, Set)}, and claims from runtime-scope dependencies give way to compile-scope ones the
+     * same way: code compiles against an artifact through a compile-scope dependency, never a runtime-only one.
+     *
+     * @param runtimeScoped the declared dependencies with runtime scope
+     */
+    public static Map<ArtifactId, ArtifactId> owners(Map<ArtifactId, ? extends Collection<ArtifactId>> closures,
+                                                     Set<ArtifactId> testScoped, Set<ArtifactId> runtimeScoped) {
         Map<ArtifactId, Set<ArtifactId>> claimedBy = new HashMap<>();
         closures.forEach((d, c) -> c.forEach(a -> claimedBy.computeIfAbsent(a, k -> new HashSet<>()).add(d)));
         Map<ArtifactId, ArtifactId> owner = new HashMap<>();
         claimedBy.forEach((a, ds) -> {
             Set<ArtifactId> main = new HashSet<>(ds);
             main.removeAll(testScoped);
-            Set<ArtifactId> claims = main.isEmpty() ? ds : main;
-            // a claimant that every other claimant brings in whole is the direct route to the artifact
-            List<ArtifactId> direct = claims.stream().filter(d -> claims.stream()
-                    .allMatch(o -> o.equals(d) || closures.get(o).containsAll(closures.get(d)))).toList();
+            Set<ArtifactId> compile = new HashSet<>(main);
+            compile.removeAll(runtimeScoped);
+            Set<ArtifactId> claims = !compile.isEmpty() ? compile : main.isEmpty() ? ds : main;
+            // the direct route to the artifact: a claimant every other claimant depends on, or a starter that every
+            // other claimant brings in whole (itself aside); only starters for the latter: a library is declared for
+            // its own classes, not for the jars it shares with a starter
+            List<ArtifactId> direct = claims.size() == 1 ? List.copyOf(claims) : claims.stream().filter(d ->
+                    claims.stream().allMatch(o -> o.equals(d) || closures.get(o).contains(d))
+                    || starter(d) && claims.stream().allMatch(o -> o.equals(d)
+                    || closures.get(d).stream().allMatch(x -> x.equals(d)
+                            || !x.equals(o) && closures.get(o).contains(x)))).toList();
             if (direct.size() == 1) {
                 owner.put(a, direct.get(0));
-            } else if (a.groupId().equals("org.springframework.boot") && a.artifactId().startsWith("spring-boot-")) {
-                ArtifactId starter = new ArtifactId(a.groupId(),
-                        "spring-boot-starter-" + a.artifactId().substring("spring-boot-".length()));
-                if (claims.contains(starter)) {
-                    owner.put(a, starter);
-                }
+                return;
+            }
+            List<ArtifactId> starters = claims.stream().filter(s -> bootModule(s) != null
+                    && claims.stream().allMatch(o -> closures.get(o).contains(bootModule(s)))).toList();
+            if (starters.size() == 1) {
+                owner.put(a, starters.get(0));
             }
         });
         closures.keySet().forEach(d -> owner.put(d, d)); // a declared dependency always owns its own jar
         return owner;
+    }
+
+    private static boolean starter(ArtifactId d) {
+        return d.groupId().equals("org.springframework.boot") && d.artifactId().startsWith("spring-boot-starter");
+    }
+
+    /** {@code spring-boot-X} for the Boot starter {@code spring-boot-starter-X}, otherwise null. */
+    private static ArtifactId bootModule(ArtifactId starter) {
+        String prefix = "spring-boot-starter-";
+        return starter.groupId().equals("org.springframework.boot") && starter.artifactId().startsWith(prefix)
+                ? new ArtifactId(starter.groupId(), "spring-boot-" + starter.artifactId().substring(prefix.length()))
+                : null;
     }
 
     /**
@@ -194,7 +281,7 @@ public final class Classifier {
                                 ac.name() + " did not match: " + String.join("; ", ac.messages())));
             }
         }
-        beanEvidence(probes, found, owner);
+        beanEvidence(probes, found, owner, modules);
 
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
@@ -243,7 +330,7 @@ public final class Classifier {
 
     /** Credits beans reachable from a project bean through injection / depends-on edges. */
     private static void beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
-                                     Map<ArtifactId, ArtifactId> owner) {
+                                     Map<ArtifactId, ArtifactId> owner, Set<ArtifactId> modules) {
         Map<String, List<Integer>> contextsByKey = new HashMap<>();
         Map<BeanKey, ProbeReport.Bean> beans = new LinkedHashMap<>();
         for (int i = 0; i < probes.size(); i++) {
@@ -259,6 +346,10 @@ public final class Classifier {
         beans.forEach((key, bean) -> {
             if (bean.artifacts().contains(ArtifactId.PROJECT)) {
                 roots.add(key);
+            } else if (bean.artifacts().stream().anyMatch(modules::contains)) {
+                roots.add(key);
+                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
+                        "bean '" + key.name() + "' (" + bean.type() + ") of a project module"));
             }
             if (bean.factoryBean() != null) {
                 for (BeanKey factory : resolveBeans(key.context(), bean.factoryBean(), probes, contextsByKey, beans)) {

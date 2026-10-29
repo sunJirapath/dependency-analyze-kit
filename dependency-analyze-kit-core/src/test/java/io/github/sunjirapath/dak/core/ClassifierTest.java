@@ -2,6 +2,7 @@ package io.github.sunjirapath.dak.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -270,6 +271,77 @@ class ClassifierTest {
     }
 
     @Test
+    void starterOwnsWhatLibrariesReachThroughTheBootModuleItIsNamedAfter() {
+        ArtifactId springdoc = id("org.springdoc:springdoc-openapi-starter-webmvc-ui");
+        ArtifactId webmvc = id("org.springframework.boot:spring-boot-webmvc");
+        ArtifactId webmvcStarter = id("org.springframework.boot:spring-boot-starter-webmvc");
+        ArtifactId tomcat = id("org.springframework.boot:spring-boot-starter-tomcat");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                springdoc, Set.of(springdoc, webmvc, SPRING_WEB, BOOT, id("org.webjars:swagger-ui")),
+                webmvcStarter, Set.of(webmvcStarter, webmvc, SPRING_WEB, tomcat, BOOT)), Set.of());
+        assertEquals(webmvcStarter, owners.get(SPRING_WEB));
+        assertEquals(webmvcStarter, owners.get(BOOT));
+    }
+
+    @Test
+    void starterWhoseJarsAnotherStarterAlsoBringsOwnsThem() {
+        ArtifactId aspectjStarter = id("org.springframework.boot:spring-boot-starter-aspectj");
+        ArtifactId jpaStarter = id("org.springframework.boot:spring-boot-starter-data-jpa");
+        ArtifactId weaver = id("org.aspectj:aspectjweaver");
+        ArtifactId aop = id("org.springframework:spring-aop");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                aspectjStarter, Set.of(aspectjStarter, aop, weaver, BOOT),
+                jpaStarter, Set.of(jpaStarter, aop, weaver, BOOT, id("org.hibernate.orm:hibernate-core"))), Set.of());
+        assertEquals(aspectjStarter, owners.get(weaver));
+        assertEquals(aspectjStarter, owners.get(BOOT));
+    }
+
+    @Test
+    void libraryWhoseJarsAStarterAlsoBringsDoesNotOwnThem() {
+        ArtifactId starter = id("org.springframework.boot:spring-boot-starter");
+        ArtifactId library = id("com.example:feature-starter");
+        ArtifactId autoconfigure = id("org.springframework.boot:spring-boot-autoconfigure");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                starter, Set.of(starter, autoconfigure, BOOT, id("org.yaml:snakeyaml")),
+                library, Set.of(library, autoconfigure, BOOT)), Set.of());
+        assertNotEquals(library, owners.get(autoconfigure));
+    }
+
+    @Test
+    void dependencyThatEveryOtherClaimantPullsInOwnsWhatTheyShare() {
+        ArtifactId sibling = id("com.example:core");
+        ArtifactId feature = id("org.example:feature-starter-jdbc");
+        ArtifactId featureCore = id("org.example:feature-core");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(Map.of(
+                sibling, Set.of(sibling, feature, featureCore, BOOT, SPRING_WEB),
+                feature, Set.of(feature, featureCore, BOOT)), Set.of());
+        assertEquals(feature, owners.get(featureCore));
+        assertEquals(feature, owners.get(BOOT));
+        assertEquals(sibling, owners.get(SPRING_WEB));
+    }
+
+    @Test
+    void runtimeScopeClaimGivesWayToCompileScopeOwner() {
+        ArtifactId starter = id("org.example:feature-starter-core");
+        ArtifactId jpa = id("org.example:feature-starter-jpa");
+        ArtifactId actuator = id("org.example:feature-actuator");
+        ArtifactId api = id("org.example:feature-api");
+        ArtifactId runtime = id("org.example:feature-runtime");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(
+                starter, Set.of(starter, api, BOOT),
+                jpa, Set.of(jpa, starter, api, BOOT),
+                actuator, Set.of(actuator, runtime, api));
+        assertNull(Classifier.owners(closures, Set.of()).get(api), "actuator reaches api past the starter");
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(), Set.of(actuator));
+        assertEquals(starter, owners.get(api));
+
+        Map<ArtifactId, Result> r = byId(classifier.classify(List.of(new Declared(starter, "compile"),
+                new Declared(jpa, "compile"), new Declared(actuator, "runtime")), owners,
+                Map.of(api, Set.of("org.example.feature.Annotated")), List.of()));
+        assertEquals(Verdict.USED_BYTECODE, r.get(starter).verdict());
+    }
+
+    @Test
     void annotationDrivenStartersAreSideEffect() {
         ArtifactId cache = id("org.springframework.boot:spring-boot-starter-cache");
         ArtifactId cacheAc = id("org.springframework.boot:spring-boot-cache");
@@ -292,6 +364,138 @@ class ClassifierTest {
                 Classifier.owners(Map.of(r4j, Set.of(r4j), pool, Set.of(pool)), Set.of()), Map.of(), List.of(probe)));
         assertEquals(Verdict.USED_AUTOCONFIG, r.get(r4j).verdict());
         assertEquals(Verdict.IGNORED, r.get(pool).verdict());
+    }
+
+    @Test
+    void serviceLoaderProvidersAndWebjarsAreIgnored() {
+        ArtifactId jjwt = id("io.jsonwebtoken:jjwt-impl");
+        ArtifactId flyway = id("org.flywaydb:flyway-database-postgresql");
+        ArtifactId webjar = id("org.webjars:bootstrap");
+        ArtifactId console = id("org.springframework.boot:spring-boot-h2console");
+        ArtifactId ktor = id("io.ktor:ktor-client-okhttp-jvm");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.h2console.autoconfigure.H2ConsoleAutoConfiguration", true, console)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(jjwt, "runtime"), new Declared(flyway, "compile"),
+                        new Declared(webjar, "compile"), new Declared(console, "compile"),
+                        new Declared(ktor, "compile")),
+                Classifier.owners(Map.of(jjwt, Set.of(jjwt), flyway, Set.of(flyway), webjar, Set.of(webjar),
+                        console, Set.of(console), ktor, Set.of(ktor)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.IGNORED, r.get(ktor).verdict());
+        assertEquals(Verdict.IGNORED, r.get(jjwt).verdict());
+        assertEquals(Verdict.IGNORED, r.get(flyway).verdict());
+        assertEquals(Verdict.IGNORED, r.get(webjar).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(console).verdict());
+    }
+
+    @Test
+    void reflectivelyLoadedSdkPartsAreIgnored() {
+        ArtifactId sts = id("software.amazon.awssdk:sts");
+        ArtifactId mcp = id("io.modelcontextprotocol.sdk:mcp");
+        ArtifactId mcpJson = id("io.modelcontextprotocol.sdk:mcp-json-jackson3");
+        ArtifactId migrator = id("org.springframework.boot:spring-boot-properties-migrator");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.SomeAutoConfiguration", true, migrator)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(sts, "runtime"), new Declared(mcp, "compile"),
+                        new Declared(mcpJson, "compile"), new Declared(migrator, "runtime")),
+                Classifier.owners(Map.of(sts, Set.of(sts), mcp, Set.of(mcp), mcpJson, Set.of(mcpJson),
+                        migrator, Set.of(migrator)), Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.IGNORED, r.get(sts).verdict());
+        assertEquals(Verdict.IGNORED, r.get(mcp).verdict());
+        assertEquals(Verdict.IGNORED, r.get(mcpJson).verdict());
+        assertEquals(Verdict.IGNORED, r.get(migrator).verdict());
+    }
+
+    @Test
+    void siblingModuleBeansAreProjectBeans() {
+        ArtifactId module = id("com.example:feature");
+        ArtifactId lib = id("com.example:lib");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(), List.of(
+                bean("featureService", "com.example.FeatureService", null, List.of("client"), module),
+                bean("client", "com.example.Client", null, List.of(), lib)));
+        List<Declared> declared = List.of(new Declared(module, "compile"), new Declared(lib, "compile"));
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(module, Set.of(module), lib, Set.of(lib));
+
+        Map<ArtifactId, Result> r = byId(new Classifier(List.of(), List.of(), Set.of(module)).classify(
+                declared, Classifier.owners(closures, Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_BEAN, r.get(module).verdict());
+        assertEquals(Verdict.USED_BEAN, r.get(lib).verdict());
+
+        Map<ArtifactId, Result> without = byId(classifier.classify(
+                declared, Classifier.owners(closures, Set.of()), Map.of(), List.of(probe)));
+        assertEquals(Verdict.UNUSED_CANDIDATE, without.get(module).verdict());
+    }
+
+    @Test
+    void embeddedServerAndKotlinSupportAreNotUnused() {
+        ArtifactId jetty = id("org.springframework.boot:spring-boot-starter-jetty");
+        ArtifactId http2 = id("org.eclipse.jetty.http2:jetty-http2-server");
+        ArtifactId reflect = id("org.jetbrains.kotlin:kotlin-reflect");
+        ArtifactId jdk8 = id("org.jetbrains.kotlin:kotlin-stdlib-jdk8");
+        ArtifactId stdlib = id("org.jetbrains.kotlin:kotlin-stdlib");
+        ProbeReport probe = new ProbeReport("app", true, List.of(),
+                List.of(ac("o.s.b.jetty.autoconfigure.JettyServletWebServerAutoConfiguration", true, jetty)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(jetty, "compile"), new Declared(http2, "compile"), new Declared(reflect, "compile"),
+                        new Declared(jdk8, "compile")),
+                Classifier.owners(Map.of(jetty, Set.of(jetty), http2, Set.of(http2), reflect, Set.of(reflect, stdlib),
+                        jdk8, Set.of(jdk8, stdlib)), Set.of()),
+                Map.of(stdlib, Set.of("kotlin.Unit")), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(jetty).verdict());
+        assertEquals(Verdict.IGNORED, r.get(http2).verdict());
+        assertEquals(Verdict.IGNORED, r.get(reflect).verdict());
+        assertEquals(Verdict.IGNORED, r.get(jdk8).verdict());
+    }
+
+    @Test
+    void webStarterAndPresenceProvidersAreUsedByMatchedAutoConfig() {
+        ArtifactId webmvc = id("org.springframework.boot:spring-boot-starter-webmvc");
+        ArtifactId modulith = id("org.springframework.modulith:spring-modulith-actuator");
+        ArtifactId redis = id("cn.dev33:sa-token-redis-template");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(
+                ac("o.s.b.webmvc.autoconfigure.WebMvcAutoConfiguration", true, webmvc),
+                ac("o.s.modulith.actuator.autoconfigure.ApplicationModulesEndpointConfiguration", true, modulith),
+                ac("cn.dev33.satoken.dao.SaTokenDaoForRedisTemplate", true, redis)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(webmvc, "compile"), new Declared(modulith, "runtime"), new Declared(redis, "compile")),
+                Classifier.owners(Map.of(webmvc, Set.of(webmvc), modulith, Set.of(modulith), redis, Set.of(redis)), Set.of()),
+                Map.of(), List.of(probe)));
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(webmvc).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(modulith).verdict());
+        assertEquals(Verdict.USED_AUTOCONFIG, r.get(redis).verdict());
+    }
+
+    @Test
+    void cloudClientsTracingAndTypeContributorsAreNotUnused() {
+        ArtifactId eureka = id("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client");
+        ArtifactId eurekaJar = id("org.springframework.cloud:spring-cloud-netflix-eureka-client");
+        ArtifactId config = id("org.springframework.cloud:spring-cloud-starter-config");
+        ArtifactId configJar = id("org.springframework.cloud:spring-cloud-config-client");
+        ArtifactId breaker = id("org.springframework.cloud:spring-cloud-starter-circuitbreaker-reactor-resilience4j");
+        ArtifactId brave = id("org.springframework.boot:spring-boot-micrometer-tracing-brave");
+        ArtifactId zipkin = id("io.zipkin.reporter2:zipkin-reporter-brave");
+        ArtifactId vector = id("org.hibernate.orm:hibernate-vector");
+        ArtifactId logstash = id("net.logstash.logback:logstash-logback-encoder");
+        ProbeReport probe = new ProbeReport("app", true, List.of(), List.of(
+                ac("o.s.c.netflix.eureka.EurekaClientAutoConfiguration", true, eurekaJar),
+                ac("o.s.c.config.client.ConfigClientAutoConfiguration", true, configJar),
+                ac("o.s.c.circuitbreaker.resilience4j.ReactiveResilience4JAutoConfiguration", true, breaker),
+                ac("o.s.b.micrometer.tracing.brave.autoconfigure.BraveAutoConfiguration", true, brave),
+                ac("o.s.b.zipkin.autoconfigure.ZipkinWithBraveTracingAutoConfiguration", true, zipkin)), List.of());
+        Map<ArtifactId, Result> r = byId(classifier.classify(
+                List.of(new Declared(eureka, "compile"), new Declared(config, "compile"), new Declared(breaker, "compile"),
+                        new Declared(brave, "compile"), new Declared(zipkin, "compile"), new Declared(vector, "compile"),
+                        new Declared(logstash, "compile")),
+                Classifier.owners(Map.of(eureka, Set.of(eureka, eurekaJar), config, Set.of(config, configJar),
+                        breaker, Set.of(breaker), brave, Set.of(brave), zipkin, Set.of(zipkin), vector, Set.of(vector),
+                        logstash, Set.of(logstash)), Set.of()),
+                Map.of(), List.of(probe)));
+        for (ArtifactId a : List.of(eureka, config, breaker, brave, zipkin)) {
+            assertEquals(Verdict.USED_AUTOCONFIG, r.get(a).verdict(), a.toString());
+        }
+        assertEquals(Verdict.IGNORED, r.get(vector).verdict());
+        assertEquals(Verdict.IGNORED, r.get(logstash).verdict());
     }
 
     @Test
