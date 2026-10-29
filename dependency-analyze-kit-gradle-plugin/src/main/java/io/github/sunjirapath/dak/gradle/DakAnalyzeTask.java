@@ -193,9 +193,9 @@ public abstract class DakAnalyzeTask extends DefaultTask {
         Map<String, ArtifactId> out = new HashMap<>();
         for (ResolvedArtifactResult artifact : getArtifacts().get()) {
             ArtifactId id = ids.get(artifact.getId().getComponentIdentifier());
-            if (id != null) out.put(artifact.getFile().getCanonicalPath(), id);
+            if (id != null) out.put(ProbeReport.location(artifact.getFile().toPath()), id);
         }
-        for (File directory : getProjectClasses().getFiles()) out.put(directory.getCanonicalPath(), ArtifactId.PROJECT);
+        for (File directory : getProjectClasses().getFiles()) out.put(ProbeReport.location(directory.toPath()), ArtifactId.PROJECT);
         return out;
     }
 

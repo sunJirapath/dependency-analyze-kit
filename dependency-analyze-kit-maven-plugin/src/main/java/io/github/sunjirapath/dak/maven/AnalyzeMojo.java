@@ -213,16 +213,16 @@ public class AnalyzeMojo extends AbstractMojo {
                 .forEach(c -> collect(c, into));
     }
 
-    /** Canonical jar or classes-directory path to artifact; the project's own output maps to PROJECT. */
+    /** Real jar or classes-directory path to artifact; the project's own output maps to PROJECT. */
     private Map<String, ArtifactId> locations() throws IOException {
         Map<String, ArtifactId> out = new HashMap<>();
         for (Artifact a : project.getArtifacts()) {
             if (a.getFile() != null) {
-                out.put(a.getFile().getCanonicalPath(), id(a));
+                out.put(ProbeReport.location(a.getFile().toPath()), id(a));
             }
         }
-        out.put(new File(project.getBuild().getOutputDirectory()).getCanonicalPath(), ArtifactId.PROJECT);
-        out.put(new File(project.getBuild().getTestOutputDirectory()).getCanonicalPath(), ArtifactId.PROJECT);
+        out.put(ProbeReport.location(Path.of(project.getBuild().getOutputDirectory())), ArtifactId.PROJECT);
+        out.put(ProbeReport.location(Path.of(project.getBuild().getTestOutputDirectory())), ArtifactId.PROJECT);
         return out;
     }
 
