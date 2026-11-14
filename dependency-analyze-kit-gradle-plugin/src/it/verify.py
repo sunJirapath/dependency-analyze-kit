@@ -34,6 +34,9 @@ def check(condition, message, context=""):
 
 def report():
     data = json.loads(REPORT.read_text())
+    check(data["schemaVersion"] == 1, "unexpected report schema", str(data))
+    check(data["tool"]["version"] == VERSION, "wrong tool version", str(data))
+    check(len(data["contexts"]) == data["probeReports"], "missing context provenance", str(data))
     deps = {d["dependency"]: d for d in data["dependencies"]}
     return data, deps, json.dumps(data, indent=2)
 
@@ -83,14 +86,16 @@ json_starter = expect(deps, pretty, "org.springframework.boot:spring-boot-starte
 # auto-configuration evidence only comes from a probe report
 check(any(e["kind"] == "AUTOCONFIG_MATCHED" and "JacksonAutoConfiguration matched" in e["detail"]
           for e in json_starter["evidence"]), "starter-json: no probe evidence", pretty)
-first = REPORT.read_text()
+first = data
 
 # 2. no changes: configuration cache reused, but evidence must be produced again.
 out = gradle("run2")
 check("Configuration cache entry reused." in out, "run2: configuration cache entry not reused", out)
 check("> Task :app:test\n" in out, "run2: :app:test did not execute", out)
 check("> Task :app:dependencyAnalyzeKit\n" in out, "run2: analysis did not execute", out)
-check(json.loads(REPORT.read_text()) == json.loads(first), "run2: report changed")
+data, deps, pretty = report()
+check(data["dependencies"] == first["dependencies"], "run2: dependency results changed", pretty)
+check(data["analysis"] == first["analysis"], "run2: completeness changed", pretty)
 
 # 3. a test rerun must empty its probe directory first: an unparseable stale report would fail the analysis.
 (PROBES / "context-stale.json").write_text("{ stale")
@@ -100,7 +105,23 @@ files = contexts()
 check(len(files) == 1 and files[0] != "context-stale.json", f"run3: probe files {files}")
 data, deps, pretty = report()
 check(data["probeReports"] == 1, f"run3: probeReports={data['probeReports']}", pretty)
-check(json.loads(first) == data, "run3: report differs from run1", pretty)
+check(first["dependencies"] == data["dependencies"], "run3: dependency results differ from run1", pretty)
+
+# Known omissions must be explicit in advisory reports and must fail a gate with otherwise valid evidence.
+for step, flag, reason in [
+    ("compile-only", "-PexcludedCompileOnly", "Dependencies in compileOnly are outside the runtime module graph"),
+    ("local-files", "-PexcludedFiles", "Local file dependencies are outside the runtime module graph"),
+]:
+    gradle(f"{step}-advisory", flag)
+    data, deps, pretty = report()
+    check(data["analysis"]["status"] == "INCOMPLETE", f"{step}: omitted dependencies marked complete", pretty)
+    check(reason in data["analysis"]["reasons"], f"{step}: missing scope diagnostic", pretty)
+    out = gradle(f"{step}-gate", flag, "-PdakGate", succeeds=False)
+    check("Incomplete dependency analysis" in out, f"{step}: incomplete gate passed", out)
+    data, deps, pretty = report()
+    check(data["probeReports"] > 0, f"{step}: no runtime evidence", pretty)
+    check(not any(d["verdict"] in ("UNKNOWN", "UNUSED_CANDIDATE") for d in deps.values()),
+          f"{step}: expected isolated scope failure", pretty)
 
 # 4. A valid gate run proves that the next failures are about evidence, not unrelated candidates.
 service = WORK / "app" / "src" / "main" / "java" / "it" / "ReportService.java"

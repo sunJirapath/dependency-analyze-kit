@@ -4,6 +4,8 @@ import groovy.json.JsonSlurper
 def reportFile = new File(basedir, 'target/dependency-analyze-kit/report.json')
 assert reportFile.isFile() : "report.json not found: ${reportFile}"
 def report = new JsonSlurper().parse(reportFile)
+assert report.probeReports > 0 : 'No-fork execution did not produce evidence'
+assert report.analysis.status == 'COMPLETE' : report.analysis
 def pretty = JsonOutput.prettyPrint(reportFile.text)
 
 def dep = { String key ->

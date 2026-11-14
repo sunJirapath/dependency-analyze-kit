@@ -43,6 +43,15 @@
   <build>
     <plugins>
       <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <forkCount>0</forkCount>
+          <systemPropertyVariables>
+            <dak.enabled>true</dak.enabled>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>@project.groupId@</groupId>
         <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
         <version>@project.version@</version>

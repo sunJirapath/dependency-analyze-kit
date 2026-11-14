@@ -124,7 +124,9 @@ So `USED_AUTOCONFIG` and `USED_BEAN` would both fire for the unused starter in I
 - `USED_AUTOCONFIG`: a matched auto-config attributed to the dependency, **and** the dependency is on a built-in *side-effect* list where a match really is the usage. Examples: `spring-boot-starter-actuator`, `-security`, `-thymeleaf`/`-freemarker`/`-mustache`, `-devtools`, `-web-services`. The user can extend the list. Everywhere else, matched auto-configs are recorded as evidence text but don't by themselves make a dependency used.
 - `UNUSED_CANDIDATE`: none of the above, no ignore applies, and at least one current full-context probe report exists. The evidence line names what was found, e.g.:
   - `RedisAutoConfiguration matched; its 3 beans have no project consumers`
-  - `FeatureAutoConfiguration did not match: @ConditionalOnProperty (feature.enabled) did not find property 'feature.enabled'` (IT #3)
+  - `FeatureAutoConfiguration did not match: OnPropertyCondition: condition message omitted` (IT #3).
+    Free-form messages are omitted by default; `dak.includeConditionMessages=true` in the test JVM opts in to
+    raw diagnostics that may expose credentials in probe files, final reports and logs (see README privacy notes).
 - `UNKNOWN`: no eligible probe report, or only partial/slice contexts (unless stronger evidence or an ignore applies).
 - Precedence: `USED_BYTECODE > USED_BEAN > USED_AUTOCONFIG > UNUSED_CANDIDATE`. The report keeps *all* evidence, not just the winning type.
 

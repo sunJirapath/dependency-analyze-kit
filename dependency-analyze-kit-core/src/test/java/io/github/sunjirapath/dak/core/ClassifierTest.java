@@ -575,6 +575,49 @@ class ClassifierTest {
     }
 
     @Test
+    void emptyGroupEmptyArtifactExtraColonBlankAndNullPatternsFailFast() {
+        for (String pattern : java.util.Arrays.asList(":artifact", "group:", "group:artifact:extra", "", " ",
+                " :artifact", "group: ", null)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new Classifier(java.util.Collections.singletonList(pattern), List.of()), String.valueOf(pattern));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new Classifier(List.of(), java.util.Collections.singletonList(pattern)), String.valueOf(pattern));
+        }
+    }
+
+    @Test
+    void allTestScopeClaimsRetainExclusiveOwnershipButNotSharedJars() {
+        ArtifactId a = id("test:a");
+        ArtifactId b = id("test:b");
+        ArtifactId exclusive = id("test:exclusive");
+        ArtifactId shared = id("test:shared");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(a, Set.of(a, exclusive, shared), b, Set.of(b, shared));
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(a, b));
+        assertEquals(a, owners.get(a));
+        assertEquals(b, owners.get(b));
+        assertEquals(a, owners.get(exclusive));
+        assertNull(owners.get(shared));
+        assertEquals(Verdict.USED_BYTECODE, classifier.classify(List.of(new Declared(a, "test")), owners,
+                Map.of(exclusive, Set.of("test.Exclusive")), List.of()).get(0).verdict());
+    }
+
+    @Test
+    void allRuntimeScopeClaimsRetainExclusiveOwnershipButNotSharedJars() {
+        ArtifactId a = id("runtime:a");
+        ArtifactId b = id("runtime:b");
+        ArtifactId exclusive = id("runtime:exclusive");
+        ArtifactId shared = id("runtime:shared");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(a, Set.of(a, exclusive, shared), b, Set.of(b, shared));
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(), Set.of(a, b));
+        assertEquals(a, owners.get(a));
+        assertEquals(b, owners.get(b));
+        assertEquals(a, owners.get(exclusive));
+        assertNull(owners.get(shared));
+        assertEquals(Verdict.USED_BYTECODE, classifier.classify(List.of(new Declared(a, "runtime")), owners,
+                Map.of(exclusive, Set.of("runtime.Exclusive")), List.of()).get(0).verdict());
+    }
+
+    @Test
     void artifactPatternMatching() {
         assertTrue(LANG3.matches("org.apache.commons:commons-lang3"));
         assertTrue(LANG3.matches("org.apache.*:commons-*"));

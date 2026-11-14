@@ -84,6 +84,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
     private final ProjectDependencyAnalyzer analyzer;
     private final RepositorySystem repositorySystem;
+    private final List<String> analysisProblems = new ArrayList<>();
 
     @Inject
     public AnalyzeMojo(ProjectDependencyAnalyzer analyzer, RepositorySystem repositorySystem) {
@@ -97,6 +98,7 @@ public class AnalyzeMojo extends AbstractMojo {
             return;
         }
         try {
+            analysisProblems.clear();
             List<ProbeReport> probes = readProbes(locations());
             List<Classifier.Declared> declared = project.getDependencies().stream()
                     .filter(d -> includeTestScope || !"test".equals(d.getScope()))
@@ -117,12 +119,11 @@ public class AnalyzeMojo extends AbstractMojo {
                     ? new File(new File(outputDirectory, project.getGroupId()), project.getArtifactId()) : outputDirectory;
             Files.createDirectories(reportDirectory.toPath());
             File report = new File(reportDirectory, "report.json");
-            Files.writeString(report.toPath(), Reports.json(results, probes.size()));
+            Files.writeString(report.toPath(), Reports.json(results, probes, analysisProblems));
             getLog().info("Report: " + report + " (" + probes.size() + " probe report(s))");
 
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
-            if (failOnUnused && (probes.stream().noneMatch(ProbeReport::fullAutoConfig)
-                    || results.stream().anyMatch(r -> r.verdict() == Verdict.UNKNOWN))) {
+            if (failOnUnused && !Reports.incompleteReasons(results, probes, analysisProblems).isEmpty()) {
                 throw new MojoFailureException("Incomplete dependency analysis: current full-context probe evidence required; see " + report);
             }
             if (failOnUnused && unused > 0) {
@@ -149,6 +150,7 @@ public class AnalyzeMojo extends AbstractMojo {
                     out.computeIfAbsent(artifact, k -> new TreeSet<>()).addAll(classes));
         } catch (IOException e) {
             if (failOnUnused) throw e;
+            analysisProblems.add("Annotation reference scan failed");
             getLog().warn("Could not scan annotation type references: " + e.getMessage());
         }
         return out;
@@ -193,6 +195,7 @@ public class AnalyzeMojo extends AbstractMojo {
                 root = repositorySystem.collectDependencies(session.getRepositorySession(), request).getRoot();
             } catch (DependencyCollectionException e) {
                 if (failOnUnused) throw new MojoExecutionException("Incomplete dependency graph for " + d.getManagementKey(), e);
+                analysisProblems.add("Partial dependency graph for " + d.getManagementKey());
                 getLog().warn("Partial dependency graph for " + d.getManagementKey() + ": " + e.getMessage());
                 root = e.getResult().getRoot();
             }

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.FileCollectionDependency;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Delete;
 import org.gradle.api.tasks.Internal;
@@ -69,6 +71,7 @@ public final class DakPlugin implements Plugin<Project> {
             task.getRootComponent().set(runtime.getIncoming().getResolutionResult().getRootComponent());
             task.getArtifacts().set(runtime.getIncoming().getArtifacts().getResolvedArtifacts());
             task.getScopes().set(project.provider(() -> scopes(project)));
+            task.getAnalysisProblems().set(project.provider(() -> analysisProblems(project)));
             task.getIgnored().set(project.provider(extension::getIgnored));
             task.getSideEffectStarters().set(project.provider(extension::getSideEffectStarters));
             task.getFailOnUnused().set(project.provider(extension::isFailOnUnused));
@@ -89,6 +92,22 @@ public final class DakPlugin implements Plugin<Project> {
             }
         }
         return out;
+    }
+
+    private static List<String> analysisProblems(Project project) {
+        List<String> problems = new ArrayList<>();
+        // shortcut: only the runtime module graph is analyzed, add compile-only/file attribution when supported.
+        for (String name : List.of("compileOnly", "compileOnlyApi")) {
+            Configuration configuration = project.getConfigurations().findByName(name);
+            if (configuration != null && !configuration.getAllDependencies().isEmpty()) {
+                problems.add("Dependencies in " + name + " are outside the runtime module graph");
+            }
+        }
+        if (project.getConfigurations().getByName("runtimeClasspath").getAllDependencies().stream()
+                .anyMatch(d -> d instanceof FileCollectionDependency)) {
+            problems.add("Local file dependencies are outside the runtime module graph");
+        }
+        return problems;
     }
 
     /** Empties a Test task's probe directory before it runs and points the probe at it. */

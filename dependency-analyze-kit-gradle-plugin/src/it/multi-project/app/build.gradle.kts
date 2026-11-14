@@ -36,6 +36,12 @@ dependencies {
     runtimeOnly("org.springframework.boot:spring-boot-starter-json")
     runtimeOnly("org.springframework.boot:spring-boot-starter-jdbc")
     runtimeOnly("com.h2database:h2")
+    if (providers.gradleProperty("excludedCompileOnly").isPresent) {
+        compileOnly("org.jspecify:jspecify:1.0.0")
+    }
+    if (providers.gradleProperty("excludedFiles").isPresent) {
+        runtimeOnly(files(rootProject.project(":lib").projectDir.resolve("build/libs/lib.jar")))
+    }
     constraints {
         runtimeOnly("com.zaxxer:HikariCP:5.1.0")
         implementation("org.apache.commons:commons-lang3:3.17.0")

@@ -4,6 +4,9 @@ import groovy.json.JsonSlurper
 def reportFile = new File(basedir, 'target/dependency-analyze-kit/report.json')
 assert reportFile.isFile() : "report.json not found: ${reportFile}"
 def report = new JsonSlurper().parse(reportFile)
+assert report.probeReports > 0 : 'Explicit property forwarding did not enable the probe'
+assert report.contexts.any { it.profiles.contains('dak-it') } : 'Spring profile provenance missing'
+assert report.analysis.status == 'COMPLETE' : report.analysis
 def pretty = JsonOutput.prettyPrint(reportFile.text)
 
 def dep = { String key ->
@@ -25,6 +28,6 @@ def hasEvidence = { String key, String kind, String text ->
 }
 
 verdict('io.github.sunjirapath.it:feature-starter', 'UNUSED_CANDIDATE')
-hasEvidence('io.github.sunjirapath.it:feature-starter', 'AUTOCONFIG_UNMATCHED', 'feature.enabled')
+hasEvidence('io.github.sunjirapath.it:feature-starter', 'AUTOCONFIG_UNMATCHED', 'OnPropertyCondition: condition message omitted')
 
 return true

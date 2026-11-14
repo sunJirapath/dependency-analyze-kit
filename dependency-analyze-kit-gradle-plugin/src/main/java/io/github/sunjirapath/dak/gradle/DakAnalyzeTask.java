@@ -79,6 +79,9 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     public abstract ListProperty<String> getSideEffectStarters();
 
     @Input
+    public abstract ListProperty<String> getAnalysisProblems();
+
+    @Input
     public abstract Property<Boolean> getFailOnUnused();
 
     @OutputFile
@@ -101,13 +104,14 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
             List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
                     .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes);
+            List<String> problems = getAnalysisProblems().get();
+            problems.forEach(problem -> getLogger().warn("Incomplete dependency analysis: " + problem));
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             Files.createDirectories(report.toPath().getParent());
-            Files.writeString(report.toPath(), Reports.json(results, probes.size()));
+            Files.writeString(report.toPath(), Reports.json(results, probes, problems));
             getLogger().lifecycle("Dependency analysis report: " + report + " (" + probes.size() + " probe report(s))");
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
-            if (getFailOnUnused().get() && (probes.stream().noneMatch(ProbeReport::fullAutoConfig)
-                    || results.stream().anyMatch(r -> r.verdict() == Verdict.UNKNOWN))) {
+            if (getFailOnUnused().get() && !Reports.incompleteReasons(results, probes, problems).isEmpty()) {
                 throw new GradleException("Incomplete dependency analysis: current full-context probe evidence required; see " + report);
             }
             if (getFailOnUnused().get() && unused > 0) {
