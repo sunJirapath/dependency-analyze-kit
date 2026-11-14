@@ -109,6 +109,10 @@ public final class Classifier {
         }
         BUILT_IN_IGNORES.put("org.flywaydb:flyway-database-*", "Flyway database support, loaded through ServiceLoader");
         BUILT_IN_IGNORES.put("org.flywaydb:flyway-mysql", "Flyway database support, loaded through ServiceLoader");
+        for (String p : List.of("org.flywaydb:flyway-core", "org.liquibase:liquibase-core",
+                "org.springframework.boot:spring-boot-starter-flyway", "org.springframework.boot:spring-boot-starter-liquibase")) {
+            BUILT_IN_IGNORES.put(p, "startup migrations can run without an application bean consumer; review migrations manually");
+        }
         BUILT_IN_IGNORES.put("org.thymeleaf.extras:thymeleaf-extras-springsecurity*",
                 "Thymeleaf dialect, registered by auto-configuration on class presence");
         BUILT_IN_IGNORES.put("org.webjars:*", "static web resources, served from the classpath");

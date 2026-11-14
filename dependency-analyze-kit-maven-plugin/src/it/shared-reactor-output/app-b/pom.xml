@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>io.github.sunjirapath.it</groupId><artifactId>shared-reactor-output</artifactId><version>1.0</version></parent>
+  <artifactId>app-b</artifactId>
+  <build><plugins><plugin>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <configuration><skipTests>true</skipTests></configuration>
+  </plugin></plugins></build>
+</project>

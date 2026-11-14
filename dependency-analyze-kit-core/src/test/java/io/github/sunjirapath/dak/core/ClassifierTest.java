@@ -367,6 +367,20 @@ class ClassifierTest {
     }
 
     @Test
+    void migrationDependenciesWithoutBeanConsumersAreNeverUnusedCandidates() {
+        for (String coordinate : List.of("org.flywaydb:flyway-core", "org.liquibase:liquibase-core",
+                "org.springframework.boot:spring-boot-starter-flyway", "org.springframework.boot:spring-boot-starter-liquibase")) {
+            ArtifactId migration = id(coordinate);
+            ProbeReport probe = new ProbeReport("app", true, List.of(),
+                    List.of(ac("demo.MigrationAutoConfiguration", true, migration)), List.of());
+            Result result = classifier.classify(List.of(new Declared(migration, "runtime")),
+                    Map.of(migration, migration), Map.of(), List.of(probe)).get(0);
+            assertEquals(Verdict.IGNORED, result.verdict(), coordinate);
+            assertTrue(result.summary().contains("startup migrations"), result.summary());
+        }
+    }
+
+    @Test
     void serviceLoaderProvidersAndWebjarsAreIgnored() {
         ArtifactId jjwt = id("io.jsonwebtoken:jjwt-impl");
         ArtifactId flyway = id("org.flywaydb:flyway-database-postgresql");

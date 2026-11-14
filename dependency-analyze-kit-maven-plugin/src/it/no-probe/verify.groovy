@@ -28,6 +28,7 @@ assert report.probeReports == 0 : "probeReports=${report.probeReports}\n${pretty
 verdict('org.apache.commons:commons-lang3', 'UNKNOWN')
 verdict('org.springframework.boot:spring-boot-starter-web', 'USED_BYTECODE')
 def log = new File(basedir, 'build.log').text
-assert log.contains('Skipped 1 probe report(s)') : 'no warning about the stale probe report'
+assert log.contains('Skipped 2 probe report(s)') : 'stale or touched cached evidence was not rejected'
+assert log.contains('Incomplete dependency analysis: current full-context probe evidence required')
 
 return true

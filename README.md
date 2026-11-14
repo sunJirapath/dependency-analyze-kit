@@ -82,8 +82,8 @@ dependencies {
     testImplementation("io.github.sunjirapath:dependency-analyze-kit-spring-probe:<version>")
 }
 
-dak {
-    failOnUnused = true
+extensions.configure<io.github.sunjirapath.dak.gradle.DakExtension>("dak") {
+    setFailOnUnused(true)
     ignored = listOf("io.micrometer:micrometer-registry-*")
     sideEffectStarters = listOf("org.springframework.boot:spring-boot-starter-oauth2-client")
 }
@@ -91,10 +91,16 @@ dak {
 
 Run `./gradlew check`. The plugin currently supports JVM projects that apply Gradle's `java` plugin; use
 `dependencyAnalyzeKit` directly if you want to generate only the dependency report. It runs every `Test` task
-first; each one writes its probe reports to `build/dependency-analyze-kit/<testTask>/` and empties that directory
-before it runs, so reports are never stale. `dakClean` deletes the whole directory. `platform()` BOM imports are
+first; each one writes its probe reports to `build/dependency-analyze-kit/<testTask>/`. The `dakPrepare` prerequisite
+deletes all previous probe files, including orphan task directories, before tests and analysis. DAK forces `Test`
+tasks to execute without reusing up-to-date or build-cache results; analysis also executes every time.
+Excluded, disabled or no-source tasks provide no evidence. `dakClean` deletes the whole directory. `platform()` BOM imports are
 skipped, and `implementation`/`api` dependencies are reported as `compile` scope, `runtimeOnly` ones as `runtime`.
 The task is configuration-cache compatible.
+
+With `failOnUnused` enabled, both plugins fail on unused candidates, `UNKNOWN` verdicts, or missing current
+full-context evidence (even if all dependencies have bytecode evidence or are ignored). Leave it `false` for
+advisory reports. Neither a successful gate nor a full context proves that every production path was exercised.
 
 ### Quick start
 
@@ -233,7 +239,8 @@ A dependency is only safe to remove if it is a candidate in every profile you sh
 
 #### Run the analysis without the verify phase
 
-The goal only reads probe files written **during the same Maven invocation**; older ones are treated as stale. Run
+The goal only reads probe files captured **during the same Maven invocation**; it checks both file modification
+time and the capture timestamp inside the report, so touching an old file cannot make it current. Run
 the tests and the goal together:
 
 ```bash
@@ -248,15 +255,21 @@ Add the probe and the plugin to each Spring Boot application module. Plain libra
 Sibling modules that the app references are credited like any other dependency
 ([`multi-module`](dependency-analyze-kit-maven-plugin/src/it/multi-module)).
 
+Probe files carry the producing module's real working-directory path; files from another module or an older
+probe without that identity are rejected. Keep the test JVM working directory at the module directory and use
+the matching probe version. In a reactor, reports go under
+`<outputDirectory>/<groupId>/<artifactId>/report.json`, so even a shared absolute output directory preserves
+each module's report. Runtime probe files can share that directory; only current files for the module are read.
+
 ### Configuration
 
 | Parameter | Default | |
 |---|---|---|
-| `failOnUnused` (`dak.failOnUnused`) | `false` | Fail the build when any `UNUSED_CANDIDATE` is found. |
+| `failOnUnused` (`dak.failOnUnused`) | `false` | Fail on `UNUSED_CANDIDATE`, `UNKNOWN`, or missing current full-context evidence. |
 | `ignored` | – | `groupId:artifactId` patterns, `*` wildcard. |
 | `sideEffectStarters` | – | Extra starters whose matched auto-configuration counts as usage. |
 | `includeTestScope` (`dak.includeTestScope`) | `false` | Also report test-scope dependencies. |
-| `outputDirectory` (`dak.outputDirectory`) | `${project.build.directory}/dependency-analyze-kit` | Destination for `report.json`. `-Ddak.outputDirectory=...` overrides both probe and report directories. |
+| `outputDirectory` (`dak.outputDirectory`) | `${project.build.directory}/dependency-analyze-kit` | Report base directory (reactors add `<groupId>/<artifactId>/`). `-Ddak.outputDirectory=...` overrides both probe and report directories. |
 | `skip` (`dak.skip`) | `false` | |
 
 The probe writes under `${basedir}/target/dependency-analyze-kit` by default. The goal reads from that
@@ -296,6 +309,10 @@ configuration change is needed for custom Maven build directories.
   or templates only (e.g. a Thymeleaf view) is invisible, so these can show up as false `UNUSED_CANDIDATE`s. The
   built-in ignore list covers JDBC drivers, logging backends and bridges, annotation processors, devtools,
   docker-compose, ehcache (JCache), commons-pool2 and feign-micrometer. Feign's per-client contexts are not probed either.
+- **Startup migrations need manual review.** `flyway-core`, `liquibase-core`, `spring-boot-starter-flyway` and
+  `spring-boot-starter-liquibase` are conservatively ignored when no stronger usage evidence exists. They can
+  perform migrations without an application bean consumer. This suppression does not prove a migration ran;
+  inspect migration resources and test the migrated schema before removing them.
 - **Evidence covers only what your tests exercised.** Conditions depend on profiles and properties. Run the build
   once per profile; merging results across runs is not supported. Lazy and prototype beans that no test created
   have no dependency edges.
@@ -328,12 +345,15 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 | `jpa-h2` | data-jpa is used (the JPA auto-config appears in its evidence); h2 is ignored. |
 | `jdbc-actuator` | `USED_BEAN` via an injected `DataSource`; actuator is `USED_AUTOCONFIG`. |
 | `conditional-property` | The evidence names the unmet `@ConditionalOnProperty`. |
-| `slice-only` | With only `@WebMvcTest` contexts, the result is `UNKNOWN`, never unused. |
+| `slice-only` | With only `@WebMvcTest` contexts, the result is `UNKNOWN` and the gate fails. |
 | `unconditional-side-effect` | Unconditional auto-configurations count for configured side-effect starters. |
 | `nested-factory` | Factory products registered before their factories still contribute their injected dependencies. |
 | `parent-child` / `parent-child-shadow` | Child injection reaches parent beans, while local beans shadow same-named parent beans. |
 | `custom-build-directory` / `custom-output-directory` / `shared-output-directory` | Runtime evidence survives custom report/build locations and a shared system-property override; unused dependencies fail the build. |
-| `no-probe` | Without probe reports, everything without bytecode evidence is `UNKNOWN`. |
+| `no-probe` | Stale reports are rejected; missing evidence is `UNKNOWN` and the gate fails. |
+| `missing-probe` | Absent evidence fails the gate even when all dependencies are ignored. |
+| `shared-reactor-output` | Two applications share an absolute probe directory; the skipped module rejects the other's evidence and reports stay separate. |
+| `flyway-migration` / `liquibase-migration` | Startup migrations create a schema without application bean consumers; the migration dependency is retained. |
 | `fail-on-unused` | `failOnUnused` and `ignored`. |
 | `multi-module` | A reactor sibling dependency. |
 
@@ -341,7 +361,7 @@ The first run fills an isolated repository under `target/local-repo`, which can 
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
 The Gradle plugin's integration test runs a multi-project Boot 4 build ([`multi-project`](dependency-analyze-kit-gradle-plugin/src/it/multi-project))
-and checks `report.json`, configuration-cache reuse, up-to-date tasks and probe-report cleanup.
+and checks `report.json`, the README extension configuration, configuration-cache reuse and current probe evidence.
 It needs Python 3 and Gradle 9.8.1 on the path (CI runs it on Linux, Java 21):
 
 ```bash
@@ -397,6 +417,8 @@ mvn verify -Ddak.enabled=true
 
 probe จะทำงานเฉพาะเมื่อใส่ `-Ddak.enabled=true` จากนั้น goal `analyze` จะพิมพ์ตารางผลลัพธ์และเขียน
 `target/dependency-analyze-kit/report.json` ถ้าต้องการให้ CI fail เมื่อเจอ dependency ที่ไม่ได้ใช้ ให้เพิ่ม `-Ddak.failOnUnused=true`
+
+เมื่อเปิด `failOnUnused` จะ fail ด้วยหากเป็น `UNKNOWN` หรือไม่มีหลักฐาน full context ของการรันปัจจุบัน
 
 ### ผลลัพธ์
 

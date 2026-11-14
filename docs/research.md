@@ -119,12 +119,13 @@ So `USED_AUTOCONFIG` and `USED_BEAN` would both fire for the unused starter in I
 - `USED_BEAN`: a bean whose class or `getType()` comes from the exclusive closure is **reachable from a project bean** in the `getDependenciesForBean` graph.
   - A *project bean* is one whose type comes from `target/classes` or `target/test-classes`.
   - For JPA repositories, `getType()` returns the user's interface, so they count as roots.
-  - Reachability includes `@DependsOn` edges, which is how Flyway/Liquibase get credited.
+  - Reachability includes `@DependsOn` edges. Migration-only apps may have no such project-root edge;
+    Flyway/Liquibase core dependencies and Boot migration starters are conservatively ignored in that case.
 - `USED_AUTOCONFIG`: a matched auto-config attributed to the dependency, **and** the dependency is on a built-in *side-effect* list where a match really is the usage. Examples: `spring-boot-starter-actuator`, `-security`, `-thymeleaf`/`-freemarker`/`-mustache`, `-devtools`, `-web-services`. The user can extend the list. Everywhere else, matched auto-configs are recorded as evidence text but don't by themselves make a dependency used.
-- `UNUSED_CANDIDATE`: none of the above, and at least one probe report exists. The evidence line names what was found, e.g.:
+- `UNUSED_CANDIDATE`: none of the above, no ignore applies, and at least one current full-context probe report exists. The evidence line names what was found, e.g.:
   - `RedisAutoConfiguration matched; its 3 beans have no project consumers`
   - `FeatureAutoConfiguration did not match: @ConditionalOnProperty (feature.enabled) did not find property 'feature.enabled'` (IT #3)
-- `UNKNOWN`: no probe report.
+- `UNKNOWN`: no eligible probe report, or only partial/slice contexts (unless stronger evidence or an ignore applies).
 - Precedence: `USED_BYTECODE > USED_BEAN > USED_AUTOCONFIG > UNUSED_CANDIDATE`. The report keeps *all* evidence, not just the winning type.
 
 *Consequence for IT #2.* A JPA app always references `@Entity` and `JpaRepository`, so data-jpa comes out `USED_BYTECODE` through its exclusive closure (spring-data-jpa, jakarta.persistence). I propose the IT asserts "not `UNUSED_CANDIDATE`, and the evidence includes the matched JPA auto-config", not a literal `USED_AUTOCONFIG`. `dependency:analyze` still flags the starter, which is the point of the IT.
@@ -140,7 +141,11 @@ The classifier attributes the auto-config to every declared dependency whose own
 ### 5.3 Smaller changes
 
 - **Probe file name:** `context-<pid>-<n>.json`. Surefire may fork several JVMs, and a per-JVM counter alone would overwrite files.
-- **Stale reports:** the Mojo ignores probe files older than the Maven session start time. No deleting, so no fight with parallel forks.
+- **Stale reports:** the Mojo requires both file modification time and the recorded `capturedAt` timestamp to
+  be at least the Maven session start time. The probe's `projectDirectory` must match the module's real path;
+  missing or foreign identities are rejected. No deleting, so no fight with parallel forks.
+- **CI gate:** `failOnUnused=true` fails on candidates, `UNKNOWN`, or missing current full-context evidence,
+  including when every dependency is used or ignored. Advisory analysis remains available with the default `false`.
 - **Evidence from several contexts is unioned.** The test-context cache gives one report per distinct context. A slice-test context (`@WebMvcTest`) sees only part of the auto-configs.
   - `UNUSED_CANDIDATE` requires at least one *full* auto-config context. Otherwise the verdict is `UNKNOWN` with "only slice-test contexts observed".
   - The probe records whether `@EnableAutoConfiguration` imported the full candidate list. Exact detection is to be settled in Phase 1.
@@ -149,7 +154,8 @@ The classifier attributes the auto-config to every declared dependency whose own
 - **Probe output directory:** `${dak.outputDirectory}`, default `target/dependency-analyze-kit`, relative to `user.dir`. Surefire's default working directory is `${basedir}`.
   The goal reads that producer directory independently of its `report.json` destination, which defaults to
   `${project.build.directory}/dependency-analyze-kit`. XML-only `outputDirectory` customizes the final report;
-  a `-Ddak.outputDirectory` override relocates both producer and report.
+  a `-Ddak.outputDirectory` override relocates both producer and report. Reactor reports add
+  `<groupId>/<artifactId>/report.json` under that base to prevent cross-module overwrites.
 - **Context hierarchy:** each live context has a unique `contextKey` and optional `parentContextKey`, independent
   of its display ID. Bean edges resolve locally first, then through recorded ancestors. Unrelated contexts
   never share beans by name. Legacy probe files without keys retain isolated per-file traversal.
@@ -183,7 +189,8 @@ What the Mojo does, in order:
 2. Collect closures per declared dependency with the Resolver and compute the exclusive sets.
 3. Map jar paths to GAV through `project.getArtifacts()` → `getFile()`.
 4. Load the probe JSON files.
-5. Classify, write the reports, then fail if `failOnUnused` is set.
+5. Classify and write the reports. With `failOnUnused`, fail on unused candidates or incomplete runtime evidence;
+   analysis I/O and partial dependency-collection failures also fail the gate.
 
 ## 7. Open questions (need your call)
 

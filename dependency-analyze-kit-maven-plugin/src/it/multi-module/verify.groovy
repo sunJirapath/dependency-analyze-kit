@@ -1,7 +1,7 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
-def reportFile = new File(basedir, 'app/target/dependency-analyze-kit/report.json')
+def reportFile = new File(basedir, 'app/target/dependency-analyze-kit/io.github.sunjirapath.it/app/report.json')
 assert reportFile.isFile() : "report.json not found: ${reportFile}"
 def report = new JsonSlurper().parse(reportFile)
 def pretty = JsonOutput.prettyPrint(reportFile.text)

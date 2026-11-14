@@ -60,6 +60,9 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     public abstract ConfigurableFileCollection getProbeReports();
 
     @Input
+    public abstract Property<String> getProjectDirectory();
+
+    @Input
     public abstract Property<ResolvedComponentResult> getRootComponent();
 
     @Internal
@@ -103,6 +106,10 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             Files.writeString(report.toPath(), Reports.json(results, probes.size()));
             getLogger().lifecycle("Dependency analysis report: " + report + " (" + probes.size() + " probe report(s))");
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
+            if (getFailOnUnused().get() && (probes.stream().noneMatch(ProbeReport::fullAutoConfig)
+                    || results.stream().anyMatch(r -> r.verdict() == Verdict.UNKNOWN))) {
+                throw new GradleException("Incomplete dependency analysis: current full-context probe evidence required; see " + report);
+            }
             if (getFailOnUnused().get() && unused > 0) {
                 throw new GradleException(unused + " unused dependency candidate(s); see " + report);
             }
@@ -201,7 +208,14 @@ public abstract class DakAnalyzeTask extends DefaultTask {
 
     private List<ProbeReport> probes(Map<String, ArtifactId> locations) throws IOException {
         List<ProbeReport> out = new ArrayList<>();
-        for (File file : getProbeReports().getFiles()) out.add(ProbeReport.read(file.toPath(), locations::get));
+        for (File file : getProbeReports().getFiles()) {
+            ProbeReport probe = ProbeReport.read(file.toPath(), locations::get);
+            if (probe.belongsTo(Path.of(getProjectDirectory().get()))) {
+                out.add(probe);
+            } else {
+                getLogger().warn("Skipping probe report with missing or foreign module identity: " + file);
+            }
+        }
         return out;
     }
 }

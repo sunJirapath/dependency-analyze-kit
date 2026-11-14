@@ -1,5 +1,6 @@
 package io.github.sunjirapath.dak.gradle;
 
+import io.github.sunjirapath.dak.core.ProbeReport;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -41,8 +42,14 @@ public final class DakPlugin implements Plugin<Project> {
         SourceSet test = sourceSets.getByName(SourceSet.TEST_SOURCE_SET_NAME);
         Provider<File> outputDirectory = project.provider(extension::getOutputDirectory);
         project.getTasks().register("dakClean", Delete.class, task -> task.delete(outputDirectory));
+        TaskProvider<Delete> prepare = project.getTasks().register("dakPrepare", Delete.class, task ->
+                task.delete(project.fileTree(outputDirectory, tree -> tree.include("**/context-*.json"))));
         // each Test task owns a subdirectory, so one task's run neither wipes nor stales another's probe reports
         project.getTasks().withType(Test.class).configureEach(task -> {
+            task.dependsOn(prepare);
+            // Reusing cached test outputs cannot prove that evidence belongs to this invocation.
+            task.getOutputs().upToDateWhen(ignored -> false);
+            task.getOutputs().doNotCacheIf("DAK requires current runtime evidence", ignored -> true);
             String name = task.getName();
             ProbeDirectory probes = new ProbeDirectory(outputDirectory.map(dir -> new File(dir, name)));
             task.getOutputs().dir(probes.getDirectory());
@@ -52,10 +59,13 @@ public final class DakPlugin implements Plugin<Project> {
         });
         Configuration runtime = project.getConfigurations().getByName("runtimeClasspath");
         TaskProvider<DakAnalyzeTask> analyze = project.getTasks().register("dependencyAnalyzeKit", DakAnalyzeTask.class, task -> {
+            task.dependsOn(prepare);
+            task.getOutputs().upToDateWhen(ignored -> false);
             task.dependsOn(project.getTasks().withType(Test.class));
             task.getProjectClasses().from(main.getOutput().getClassesDirs(), test.getOutput().getClassesDirs());
             task.getRuntimeClasspath().from(runtime);
             task.getProbeReports().from(project.fileTree(outputDirectory, tree -> tree.include("**/context-*.json")));
+            task.getProjectDirectory().set(ProbeReport.location(project.getProjectDir().toPath()));
             task.getRootComponent().set(runtime.getIncoming().getResolutionResult().getRootComponent());
             task.getArtifacts().set(runtime.getIncoming().getArtifacts().getResolvedArtifacts());
             task.getScopes().set(project.provider(() -> scopes(project)));

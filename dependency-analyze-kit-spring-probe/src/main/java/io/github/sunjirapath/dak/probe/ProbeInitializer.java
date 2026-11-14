@@ -69,6 +69,8 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
         ConditionEvaluationReport report = ConditionEvaluationReport.find(bf);
         Json json = new Json();
         json.open('{').field("id").str(context.getId())
+                .field("projectDirectory").str(Path.of(System.getProperty("user.dir")).toRealPath().toString())
+                .field("capturedAt").raw(Long.toString(System.currentTimeMillis()))
                 .field("contextKey").str(contextKey(context))
                 .field("parentContextKey").str(contextKey(context.getParent()))
                 .field("fullAutoConfig").raw(String.valueOf(report != null && isFull(report, cl)))
