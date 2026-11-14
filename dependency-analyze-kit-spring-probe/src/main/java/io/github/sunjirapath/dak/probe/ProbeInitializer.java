@@ -143,7 +143,7 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
 
     /**
      * An auto-configuration is attributed to its own jar and to the jars of its {@code @ConditionalOnClass} classes.
-     * Boot 3 keeps every built-in auto-configuration in the shared spring-boot-autoconfigure jar, so the
+     * Boot 3.5.16 keeps every built-in auto-configuration in the shared spring-boot-autoconfigure jar, so the
      * classes it waits for are what tie it to a starter.
      */
     private static void autoConfig(Json json, String source, boolean matched, List<String> messages, ClassLoader cl) {
