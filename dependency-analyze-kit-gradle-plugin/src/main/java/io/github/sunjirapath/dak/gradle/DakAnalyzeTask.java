@@ -135,11 +135,13 @@ public abstract class DakAnalyzeTask extends DefaultTask {
         return out;
     }
 
-    /** The project's own dependency edges, minus {@code platform()} BOM imports, which bring no classes. */
+    /** The project's own dependency edges, excluding version constraints and {@code platform()} BOM imports. */
     private List<ResolvedDependencyResult> directEdges() {
         List<ResolvedDependencyResult> out = new ArrayList<>();
         for (DependencyResult edge : getRootComponent().get().getDependencies()) {
-            if (edge instanceof ResolvedDependencyResult resolved && !platform(resolved)) out.add(resolved);
+            if (edge instanceof ResolvedDependencyResult resolved && !resolved.isConstraint() && !platform(resolved)) {
+                out.add(resolved);
+            }
         }
         return out;
     }

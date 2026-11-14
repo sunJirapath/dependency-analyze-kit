@@ -71,10 +71,14 @@ lib = expect(deps, pretty, "it:lib", "compile", "USED_BYTECODE")
 check(any(e["detail"] == "it:lib: it.lib.Greeter" for e in lib["evidence"]), "it:lib: no Greeter evidence", pretty)
 # BOM: the platform() import is not reported, the dependencies it manages are
 check(not any("spring-boot-dependencies" in k for k in deps), "platform() BOM reported", pretty)
+# A constraint on a transitive provider is version policy, not a declared dependency or ownership root.
+check("com.zaxxer:HikariCP" not in deps, "constraint-only provider reported as a dependency", pretty)
 expect(deps, pretty, "org.springframework.boot:spring-boot-starter", "compile", "USED_BYTECODE")
 expect(deps, pretty, "org.springframework.boot:spring-boot-starter-jdbc", "runtime", "USED_BEAN")
 # scopes: implementation -> compile, runtimeOnly -> runtime
 expect(deps, pretty, "org.apache.commons:commons-lang3", "compile", "UNUSED_CANDIDATE")
+check(sum(d["dependency"] == "org.apache.commons:commons-lang3" for d in data["dependencies"]) == 1,
+      "constrained real dependency must still be reported exactly once", pretty)
 json_starter = expect(deps, pretty, "org.springframework.boot:spring-boot-starter-json", "runtime", "UNUSED_CANDIDATE")
 # auto-configuration evidence only comes from a probe report
 check(any(e["kind"] == "AUTOCONFIG_MATCHED" and "JacksonAutoConfiguration matched" in e["detail"]
@@ -165,4 +169,4 @@ data, deps, pretty = report()
 check(data["probeReports"] == 0, "absent-probe: unexpected evidence", pretty)
 check(all(d["verdict"] != "UNKNOWN" for d in deps.values()), "absent-probe: full-context guard not isolated", pretty)
 
-print("Gradle IT passed: README setup, multi-project, BOM, scopes, configuration cache, fail-closed evidence lifecycle")
+print("Gradle IT passed: README setup, multi-project, BOM, constraints, strict repositories, scopes, configuration cache, fail-closed evidence lifecycle")

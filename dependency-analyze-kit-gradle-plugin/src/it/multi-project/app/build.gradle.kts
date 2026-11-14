@@ -36,6 +36,10 @@ dependencies {
     runtimeOnly("org.springframework.boot:spring-boot-starter-json")
     runtimeOnly("org.springframework.boot:spring-boot-starter-jdbc")
     runtimeOnly("com.h2database:h2")
+    constraints {
+        runtimeOnly("com.zaxxer:HikariCP:5.1.0")
+        implementation("org.apache.commons:commons-lang3:3.17.0")
+    }
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.github.sunjirapath:dependency-analyze-kit-spring-probe:${property("dakVersion")}")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

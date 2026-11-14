@@ -94,8 +94,9 @@ Run `./gradlew check`. The plugin currently supports JVM projects that apply Gra
 first; each one writes its probe reports to `build/dependency-analyze-kit/<testTask>/`. The `dakPrepare` prerequisite
 deletes all previous probe files, including orphan task directories, before tests and analysis. DAK forces `Test`
 tasks to execute without reusing up-to-date or build-cache results; analysis also executes every time.
-Excluded, disabled or no-source tasks provide no evidence. `dakClean` deletes the whole directory. `platform()` BOM imports are
-skipped, and `implementation`/`api` dependencies are reported as `compile` scope, `runtimeOnly` ones as `runtime`.
+Excluded, disabled or no-source tasks provide no evidence. `dakClean` deletes the whole directory. `platform()` BOM imports and
+dependency constraint edges are skipped; a dependency that is also constrained is still reported.
+`implementation`/`api` dependencies are reported as `compile` scope, `runtimeOnly` ones as `runtime`.
 The task is configuration-cache compatible.
 
 With `failOnUnused` enabled, both plugins fail on unused candidates, `UNKNOWN` verdicts, or missing current
@@ -232,8 +233,12 @@ Conditions depend on profiles and properties. Give each profile its own output d
 the goal both read `dak.outputDirectory`:
 
 ```bash
-mvn verify -Ddak.enabled=true -Pprod -Ddak.outputDirectory=target/dak-prod
+mvn verify -Ddak.enabled=true -Dspring.profiles.active=prod -Ddak.outputDirectory=target/dak-prod
 ```
+
+`-Dspring.profiles.active=prod` activates Spring's `prod` profile in the test JVM. Add `-Pprod` only if you also
+need a Maven profile; it does not activate a Spring profile unless you explicitly map it. If your test runner
+does not forward Maven user properties, explicitly forward `spring.profiles.active` to the test JVM.
 
 A dependency is only safe to remove if it is a candidate in every profile you ship.
 
@@ -361,7 +366,8 @@ The first run fills an isolated repository under `target/local-repo`, which can 
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
 The Gradle plugin's integration test runs a multi-project Boot 4 build ([`multi-project`](dependency-analyze-kit-gradle-plugin/src/it/multi-project))
-and checks `report.json`, the README extension configuration, configuration-cache reuse and current probe evidence.
+and checks `report.json`, the README extension configuration, constraint exclusion, strict settings repositories,
+configuration-cache reuse and current probe evidence.
 It needs Python 3 and Gradle 9.8.1 on the path (CI runs it on Linux, Java 21):
 
 ```bash
