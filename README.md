@@ -448,10 +448,10 @@ Checks include report determinism (excluding per-run context IDs/keys/timestamps
 secret exclusion, independent removal/rebuild of **every** unused candidate, an added unused dependency,
 the documented failure policy (unused **or incomplete** analysis), and truncated/deleted runtime evidence.
 Precision failures print the dependency, module and escaped build-output tail. Missing offline artifacts or
-external services are failures, not successful validations. No real-project results have been observed yet.
+external services are failures, not successful validations. Real-project results were observed on one Windows host: all 5 Maven and 2 Gradle projects passed, and the Boot 2.0.3 control failed closed as intended; Gradle took about 38 minutes.
 
 Security regression tests with `FINDING` comments are deliberately active and failing pending design fixes.
-Symlink attack tests require a host permitted to create symlinks. These tests and the verifier have not been run.
+Symlink attack tests were skipped on Windows (2 skipped); they still need a host permitted to create symlinks, such as Linux CI. The verifier passed on one Windows host; the 7 security tests remain deliberately active and failing pending design fixes.
 Harness-only checks can be run separately with `python -m unittest discover -s scripts -p 'test_*.py'`;
 they launch no external builds. The real Gradle cases also check configuration-cache reuse, stale probe
 rejection, and whether a hostile output directory lets `dakClean` delete unrelated data inside the temp tree.
