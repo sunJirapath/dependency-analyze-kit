@@ -96,6 +96,17 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
             }
             complete &= bean.get("locations") instanceof List && bean.get("dependencies") instanceof List;
         }
+        int problemsBeforeLocations = problems.size();
+        List<AutoConfig> autoConfigs = maps(m.get("autoConfigs")).stream()
+                .map(a -> new AutoConfig(requiredString(a.get("name")), Boolean.TRUE.equals(a.get("matched")),
+                        artifacts(a.get("locations"), locate, problems), strings(a.get("messages"))))
+                .toList();
+        List<Bean> beans = maps(m.get("beans")).stream()
+                .map(b -> new Bean((String) b.get("name"), (String) b.get("type"),
+                        artifacts(b.get("locations"), locate, problems), (String) b.get("factoryBean"),
+                        strings(b.get("dependencies"))))
+                .toList();
+        complete &= problems.size() == problemsBeforeLocations;
         if (Boolean.TRUE.equals(m.get("fullAutoConfig")) && !complete) {
             problems.add("Incomplete full-context probe report");
         }
@@ -106,15 +117,7 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
                 (String) m.get("id"),
                 Boolean.TRUE.equals(m.get("fullAutoConfig")) && complete,
                 strings(m.get("profiles")),
-                maps(m.get("autoConfigs")).stream()
-                        .map(a -> new AutoConfig(requiredString(a.get("name")), Boolean.TRUE.equals(a.get("matched")),
-                                artifacts(a.get("locations"), locate), strings(a.get("messages"))))
-                        .toList(),
-                maps(m.get("beans")).stream()
-                        .map(b -> new Bean((String) b.get("name"), (String) b.get("type"),
-                                artifacts(b.get("locations"), locate), (String) b.get("factoryBean"),
-                                strings(b.get("dependencies"))))
-                        .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"),
+                autoConfigs, beans, (String) m.get("contextKey"), (String) m.get("parentContextKey"),
                 (String) m.get("projectDirectory"),
                 m.get("capturedAt") instanceof Number time ? time.longValue() : 0L);
     }
@@ -142,12 +145,13 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
         }
     }
 
-    private static Set<ArtifactId> artifacts(Object locations, Function<String, ArtifactId> locate) {
+    private static Set<ArtifactId> artifacts(Object locations, Function<String, ArtifactId> locate, List<String> problems) {
         Set<ArtifactId> out = new LinkedHashSet<>();
         for (String s : strings(locations)) {
             ArtifactId id = locate.apply(s);
             if (id == null) id = locate.apply(location(Path.of(s)));
             if (id != null) out.add(id);
+            else problems.add("Unmapped probe class location");
         }
         return out;
     }
