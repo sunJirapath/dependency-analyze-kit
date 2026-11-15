@@ -14,15 +14,17 @@ import java.util.TreeSet;
 import java.util.jar.JarFile;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import java.util.zip.ZipFile;
 
 /** Finds type names embedded in compiled-class metadata, including annotation descriptors. */
 public final class ClassReferenceScanner {
 
     private static final int CLASS_MAGIC = 0xCAFEBABE;
-    private static final Pattern DESCRIPTOR_TYPE = Pattern.compile("L([A-Za-z0-9_$/]+);");
+    private static final Pattern DESCRIPTOR_TYPE = Pattern.compile("L([\\p{javaJavaIdentifierPart}/]+);");
 
     private ClassReferenceScanner() {}
 
+    /** Missing roots are optional; malformed class metadata is an analysis error, never zero usage. */
     public static Set<String> scan(Iterable<Path> roots) throws IOException {
         Set<String> references = new HashSet<>();
         for (Path root : roots) {
@@ -40,13 +42,14 @@ public final class ClassReferenceScanner {
 
     /**
      * Credits each reference to one jar: the one whose groupId shares the most leading package segments with it,
-     * else the first on the classpath. A fat or shaded jar that bundles another library's classes is not credited.
+     * else the first on the classpath. Multi-release entries use the build JVM's version. A fat or shaded jar that
+     * bundles another library's classes is not credited.
      */
     public static Map<ArtifactId, Set<String>> owners(Set<String> references, Map<ArtifactId, Path> jars)
             throws IOException {
         Map<String, List<ArtifactId>> holders = new HashMap<>();
         for (Map.Entry<ArtifactId, Path> e : jars.entrySet()) {
-            try (JarFile jar = new JarFile(e.getValue().toFile())) {
+            try (JarFile jar = new JarFile(e.getValue().toFile(), true, ZipFile.OPEN_READ, Runtime.version())) {
                 for (String reference : references) {
                     if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
                         holders.computeIfAbsent(reference, k -> new ArrayList<>()).add(e.getKey());
@@ -80,7 +83,7 @@ public final class ClassReferenceScanner {
     private static Set<String> scanClass(Path file) throws IOException {
         try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
             if (in.readInt() != CLASS_MAGIC) {
-                return Set.of();
+                throw new IOException("invalid class magic in " + file);
             }
             in.readUnsignedShort();
             in.readUnsignedShort();
@@ -104,6 +107,9 @@ public final class ClassReferenceScanner {
             }
             Set<String> references = new HashSet<>();
             for (int nameIndex : classNames) {
+                if (nameIndex < 0 || nameIndex >= utf8.length) {
+                    throw new IOException("invalid constant-pool class index in " + file);
+                }
                 add(references, utf8[nameIndex]);
             }
             for (String value : utf8) {

@@ -20,5 +20,6 @@ assert report.probeReports >= 1 : "probeReports=${report.probeReports}\n${pretty
 verdict('org.apache.commons:commons-lang3', 'UNKNOWN')
 assert dep('org.apache.commons:commons-lang3').summary.contains('slice') : "summary lacks 'slice'\n${pretty}"
 verdict('org.springframework.boot:spring-boot-starter-web', 'USED_BYTECODE')
+assert new File(basedir, 'build.log').text.contains('Incomplete dependency analysis: current full-context probe evidence required')
 
 return true

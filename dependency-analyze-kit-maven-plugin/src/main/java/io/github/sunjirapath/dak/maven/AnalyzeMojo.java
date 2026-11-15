@@ -55,7 +55,7 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(defaultValue = "${session}", readonly = true, required = true)
     private MavenSession session;
 
-    /** Fail the build when any dependency is an UNUSED_CANDIDATE. */
+    /** Fail on unused candidates or incomplete runtime evidence. */
     @Parameter(property = "dak.failOnUnused", defaultValue = "false")
     private boolean failOnUnused;
 
@@ -71,7 +71,7 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "dak.includeTestScope", defaultValue = "false")
     private boolean includeTestScope;
 
-    /** Where this goal writes report.json. The system property overrides both probe and report directories. */
+    /** Report base directory; reactors add groupId/artifactId. The property overrides probe and report directories. */
     @Parameter(property = "dak.outputDirectory", defaultValue = "${project.build.directory}/dependency-analyze-kit")
     private File outputDirectory;
 
@@ -84,6 +84,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
     private final ProjectDependencyAnalyzer analyzer;
     private final RepositorySystem repositorySystem;
+    private final List<String> analysisProblems = new ArrayList<>();
 
     @Inject
     public AnalyzeMojo(ProjectDependencyAnalyzer analyzer, RepositorySystem repositorySystem) {
@@ -97,6 +98,7 @@ public class AnalyzeMojo extends AbstractMojo {
             return;
         }
         try {
+            analysisProblems.clear();
             List<ProbeReport> probes = readProbes(locations());
             List<Classifier.Declared> declared = project.getDependencies().stream()
                     .filter(d -> includeTestScope || !"test".equals(d.getScope()))
@@ -112,12 +114,18 @@ public class AnalyzeMojo extends AbstractMojo {
                     .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes);
 
             Reports.table(results).lines().forEach(getLog()::info);
-            Files.createDirectories(outputDirectory.toPath());
-            File report = new File(outputDirectory, "report.json");
-            Files.writeString(report.toPath(), Reports.json(results, probes.size()));
+            // A reactor may use one absolute output directory; never overwrite another module's report.
+            File reportDirectory = session.getAllProjects().size() > 1
+                    ? new File(new File(outputDirectory, project.getGroupId()), project.getArtifactId()) : outputDirectory;
+            Files.createDirectories(reportDirectory.toPath());
+            File report = new File(reportDirectory, "report.json");
+            Files.writeString(report.toPath(), Reports.json(results, probes, analysisProblems));
             getLog().info("Report: " + report + " (" + probes.size() + " probe report(s))");
 
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
+            if (failOnUnused && !Reports.incompleteReasons(results, probes, analysisProblems).isEmpty()) {
+                throw new MojoFailureException("Incomplete dependency analysis: current full-context probe evidence required; see " + report);
+            }
             if (failOnUnused && unused > 0) {
                 throw new MojoFailureException(unused + " unused dependency candidate(s); see " + report);
             }
@@ -127,7 +135,7 @@ public class AnalyzeMojo extends AbstractMojo {
     }
 
     /** Artifacts referenced from project classes (main and test), with the referenced class names. */
-    private Map<ArtifactId, Set<String>> bytecode() throws ProjectDependencyAnalyzerException {
+    private Map<ArtifactId, Set<String>> bytecode() throws ProjectDependencyAnalyzerException, IOException {
         ProjectDependencyAnalysis analysis = analyzer.analyze(project, null);
         Map<ArtifactId, Set<String>> out = new HashMap<>();
         for (Map<Artifact, Set<DependencyUsage>> m : List.of(analysis.getUsedDeclaredArtifactsWithUsages(),
@@ -141,6 +149,8 @@ public class AnalyzeMojo extends AbstractMojo {
             annotationReferences(attributed).forEach((artifact, classes) ->
                     out.computeIfAbsent(artifact, k -> new TreeSet<>()).addAll(classes));
         } catch (IOException e) {
+            if (failOnUnused) throw e;
+            analysisProblems.add("Annotation reference scan failed");
             getLog().warn("Could not scan annotation type references: " + e.getMessage());
         }
         return out;
@@ -184,6 +194,8 @@ public class AnalyzeMojo extends AbstractMojo {
             try {
                 root = repositorySystem.collectDependencies(session.getRepositorySession(), request).getRoot();
             } catch (DependencyCollectionException e) {
+                if (failOnUnused) throw new MojoExecutionException("Incomplete dependency graph for " + d.getManagementKey(), e);
+                analysisProblems.add("Partial dependency graph for " + d.getManagementKey());
                 getLog().warn("Partial dependency graph for " + d.getManagementKey() + ": " + e.getMessage());
                 root = e.getResult().getRoot();
             }
@@ -234,7 +246,17 @@ public class AnalyzeMojo extends AbstractMojo {
         int stale = 0;
         for (File f : files == null ? new File[0] : files) {
             if (f.lastModified() >= since) {
-                probes.add(ProbeReport.read(f.toPath(), locations::get));
+                ProbeReport probe = ProbeReport.read(f.toPath(), locations::get);
+                if (probe.belongsTo(project.getBasedir().toPath())) {
+                    if (probe.capturedAt() >= since) {
+                        probes.add(probe);
+                    } else {
+                        stale++;
+                        getLog().debug("Skipping probe captured before this build: " + f);
+                    }
+                } else {
+                    getLog().warn("Skipping probe report with missing or foreign module identity: " + f);
+                }
             } else {
                 getLog().debug("Skipping stale probe report " + f);
                 stale++;

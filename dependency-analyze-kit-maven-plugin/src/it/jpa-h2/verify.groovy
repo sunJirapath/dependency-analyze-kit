@@ -4,6 +4,10 @@ import groovy.json.JsonSlurper
 def reportFile = new File(basedir, 'target/dependency-analyze-kit/report.json')
 assert reportFile.isFile() : "report.json not found: ${reportFile}"
 def report = new JsonSlurper().parse(reportFile)
+assert report.probeReports > 0 : 'Failsafe-only execution did not produce evidence'
+assert report.analysis.status == 'COMPLETE' : report.analysis
+assert new File(basedir, 'target/failsafe-reports/TEST-it.ContextIT.xml').isFile() : 'Failsafe did not run ContextIT'
+assert !new File(basedir, 'target/surefire-reports/TEST-it.ContextIT.xml').exists() : 'Surefire unexpectedly ran ContextIT'
 def pretty = JsonOutput.prettyPrint(reportFile.text)
 
 def dep = { String key ->

@@ -41,6 +41,7 @@
         <groupId>@project.groupId@</groupId>
         <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
         <version>@project.version@</version>
+        <configuration><failOnUnused>true</failOnUnused></configuration>
         <executions>
           <execution>
             <goals>

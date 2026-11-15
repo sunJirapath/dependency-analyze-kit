@@ -39,6 +39,19 @@
   <build>
     <plugins>
       <plugin>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <dak.enabled>true</dak.enabled>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals><goal>integration-test</goal><goal>verify</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>@project.groupId@</groupId>
         <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
         <version>@project.version@</version>

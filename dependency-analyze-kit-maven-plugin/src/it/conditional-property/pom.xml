@@ -39,6 +39,17 @@
   <build>
     <plugins>
       <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <promoteUserPropertiesToSystemProperties>false</promoteUserPropertiesToSystemProperties>
+          <argLine>-Ddak.runner=custom</argLine>
+          <systemPropertyVariables>
+            <dak.enabled>true</dak.enabled>
+            <spring.profiles.active>dak-it</spring.profiles.active>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>@project.groupId@</groupId>
         <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
         <version>@project.version@</version>

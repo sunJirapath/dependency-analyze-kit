@@ -15,6 +15,11 @@
   <description>Test-scope library: dumps Spring's condition evaluation report and bean graph when -Ddak.enabled=true.</description>
 
   <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- provided: the user's application brings Spring Boot; the probe adds nothing to their classpath. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -12,7 +12,13 @@ import java.util.function.Function;
 
 /** One application context as dumped by the spring-probe, with class locations resolved to artifacts. */
 public record ProbeReport(String id, boolean fullAutoConfig, List<String> profiles,
-                          List<AutoConfig> autoConfigs, List<Bean> beans, String contextKey, String parentContextKey) {
+                          List<AutoConfig> autoConfigs, List<Bean> beans, String contextKey, String parentContextKey,
+                          String projectDirectory, long capturedAt) {
+
+    public ProbeReport(String id, boolean fullAutoConfig, List<String> profiles,
+                       List<AutoConfig> autoConfigs, List<Bean> beans, String contextKey, String parentContextKey) {
+        this(id, fullAutoConfig, profiles, autoConfigs, beans, contextKey, parentContextKey, null, 0L);
+    }
 
     /** Compatibility with reports collected before context hierarchy identifiers were recorded. */
     public ProbeReport(String id, boolean fullAutoConfig, List<String> profiles,
@@ -44,7 +50,16 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
                         .map(b -> new Bean((String) b.get("name"), (String) b.get("type"),
                                 artifacts(b.get("locations"), locate), (String) b.get("factoryBean"),
                                 strings(b.get("dependencies"))))
-                        .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"));
+                        .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"),
+                (String) m.get("projectDirectory"),
+                m.get("capturedAt") instanceof Number time ? time.longValue() : 0L);
+    }
+
+    /** Missing identity (including older probe versions) cannot establish which module produced evidence. */
+    public boolean belongsTo(Path project) {
+        if (projectDirectory == null || projectDirectory.isBlank()) return false;
+        Path producer = Path.of(projectDirectory);
+        return producer.isAbsolute() && location(producer).equals(location(project));
     }
 
     /**

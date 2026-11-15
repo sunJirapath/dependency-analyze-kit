@@ -367,6 +367,20 @@ class ClassifierTest {
     }
 
     @Test
+    void migrationDependenciesWithoutBeanConsumersAreNeverUnusedCandidates() {
+        for (String coordinate : List.of("org.flywaydb:flyway-core", "org.liquibase:liquibase-core",
+                "org.springframework.boot:spring-boot-starter-flyway", "org.springframework.boot:spring-boot-starter-liquibase")) {
+            ArtifactId migration = id(coordinate);
+            ProbeReport probe = new ProbeReport("app", true, List.of(),
+                    List.of(ac("demo.MigrationAutoConfiguration", true, migration)), List.of());
+            Result result = classifier.classify(List.of(new Declared(migration, "runtime")),
+                    Map.of(migration, migration), Map.of(), List.of(probe)).get(0);
+            assertEquals(Verdict.IGNORED, result.verdict(), coordinate);
+            assertTrue(result.summary().contains("startup migrations"), result.summary());
+        }
+    }
+
+    @Test
     void serviceLoaderProvidersAndWebjarsAreIgnored() {
         ArtifactId jjwt = id("io.jsonwebtoken:jjwt-impl");
         ArtifactId flyway = id("org.flywaydb:flyway-database-postgresql");
@@ -558,6 +572,49 @@ class ClassifierTest {
     void bareArtifactNameInConfigFailsFastInsteadOfSilentlyMatchingNothing() {
         assertThrows(IllegalArgumentException.class, () -> new Classifier(List.of("mapstruct-processor"), List.of()));
         assertThrows(IllegalArgumentException.class, () -> new Classifier(List.of(), List.of("spring-boot-starter-web")));
+    }
+
+    @Test
+    void emptyGroupEmptyArtifactExtraColonBlankAndNullPatternsFailFast() {
+        for (String pattern : java.util.Arrays.asList(":artifact", "group:", "group:artifact:extra", "", " ",
+                " :artifact", "group: ", null)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new Classifier(java.util.Collections.singletonList(pattern), List.of()), String.valueOf(pattern));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new Classifier(List.of(), java.util.Collections.singletonList(pattern)), String.valueOf(pattern));
+        }
+    }
+
+    @Test
+    void allTestScopeClaimsRetainExclusiveOwnershipButNotSharedJars() {
+        ArtifactId a = id("test:a");
+        ArtifactId b = id("test:b");
+        ArtifactId exclusive = id("test:exclusive");
+        ArtifactId shared = id("test:shared");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(a, Set.of(a, exclusive, shared), b, Set.of(b, shared));
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(a, b));
+        assertEquals(a, owners.get(a));
+        assertEquals(b, owners.get(b));
+        assertEquals(a, owners.get(exclusive));
+        assertNull(owners.get(shared));
+        assertEquals(Verdict.USED_BYTECODE, classifier.classify(List.of(new Declared(a, "test")), owners,
+                Map.of(exclusive, Set.of("test.Exclusive")), List.of()).get(0).verdict());
+    }
+
+    @Test
+    void allRuntimeScopeClaimsRetainExclusiveOwnershipButNotSharedJars() {
+        ArtifactId a = id("runtime:a");
+        ArtifactId b = id("runtime:b");
+        ArtifactId exclusive = id("runtime:exclusive");
+        ArtifactId shared = id("runtime:shared");
+        Map<ArtifactId, Set<ArtifactId>> closures = Map.of(a, Set.of(a, exclusive, shared), b, Set.of(b, shared));
+        Map<ArtifactId, ArtifactId> owners = Classifier.owners(closures, Set.of(), Set.of(a, b));
+        assertEquals(a, owners.get(a));
+        assertEquals(b, owners.get(b));
+        assertEquals(a, owners.get(exclusive));
+        assertNull(owners.get(shared));
+        assertEquals(Verdict.USED_BYTECODE, classifier.classify(List.of(new Declared(a, "runtime")), owners,
+                Map.of(exclusive, Set.of("runtime.Exclusive")), List.of()).get(0).verdict());
     }
 
     @Test

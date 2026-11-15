@@ -2,9 +2,13 @@ package io.github.sunjirapath.dak.core;
 
 import com.fasterxml.jackson.jr.ob.JSON;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /** Console table and report.json. */
 public final class Reports {
@@ -24,16 +28,62 @@ public final class Reports {
         return sb.toString();
     }
 
+    /** Legacy count-only callers cannot establish provenance, so their reports are incomplete. */
     public static String json(List<Classifier.Result> results, int probeReports) throws IOException {
+        return json(results, probeReports, List.of(), List.of("Probe provenance not supplied"));
+    }
+
+    public static List<String> incompleteReasons(List<Classifier.Result> results, List<ProbeReport> probes,
+                                                 List<String> problems) {
+        List<String> reasons = new ArrayList<>(problems);
+        if (probes.stream().noneMatch(ProbeReport::fullAutoConfig)) {
+            reasons.add("Current full-context probe evidence required");
+        }
+        if (results.stream().anyMatch(r -> r.verdict() == Verdict.UNKNOWN)) {
+            reasons.add("Unknown dependency verdicts");
+        }
+        return reasons.stream().distinct().sorted().toList();
+    }
+
+    /** Callers must supply only current, module-qualified probes and every known analysis problem. */
+    public static String json(List<Classifier.Result> results, List<ProbeReport> probes, List<String> problems)
+            throws IOException {
+        return json(results, probes.size(), probes, incompleteReasons(results, probes, problems));
+    }
+
+    private static String json(List<Classifier.Result> results, int probeReports, List<ProbeReport> probes,
+                               List<String> reasons) throws IOException {
         Map<String, Object> root = new LinkedHashMap<>();
+        Properties version = new Properties();
+        try (InputStream in = Reports.class.getResourceAsStream("dak-version.properties")) {
+            if (in == null) throw new IOException("Missing DAK tool version resource");
+            version.load(in);
+        }
+        root.put("schemaVersion", 1);
+        root.put("tool", Map.of("name", "dependency-analyze-kit", "version", version.getProperty("version")));
+        root.put("analysis", Map.of("status", reasons.isEmpty() ? "COMPLETE" : "INCOMPLETE", "reasons", reasons));
         root.put("probeReports", probeReports);
-        root.put("dependencies", results.stream().map(r -> {
+        root.put("contexts", probes.stream().sorted(Comparator.comparing(
+                (ProbeReport p) -> p.contextKey() == null ? "" : p.contextKey()).thenComparing(
+                p -> p.id() == null ? "" : p.id()).thenComparingLong(ProbeReport::capturedAt)).map(p -> {
+            Map<String, Object> context = new LinkedHashMap<>();
+            context.put("id", p.id());
+            context.put("contextKey", p.contextKey());
+            context.put("parentContextKey", p.parentContextKey());
+            context.put("capturedAt", p.capturedAt());
+            context.put("fullAutoConfig", p.fullAutoConfig());
+            context.put("profiles", p.profiles().stream().distinct().sorted().toList());
+            return context;
+        }).toList());
+        root.put("dependencies", results.stream().sorted(Comparator
+                .comparing((Classifier.Result r) -> r.dependency().toString()).thenComparing(Classifier.Result::scope)).map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("dependency", r.dependency().toString());
             m.put("scope", r.scope());
             m.put("verdict", r.verdict().name());
             m.put("summary", r.summary());
             m.put("evidence", r.evidence().stream()
+                    .sorted(Comparator.comparing((Evidence e) -> e.kind().name()).thenComparing(Evidence::detail))
                     .map(e -> Map.of("kind", e.kind().name(), "detail", e.detail()))
                     .toList());
             return m;

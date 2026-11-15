@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>io.github.sunjirapath.it</groupId><artifactId>shared-reactor-output</artifactId><version>1.0</version></parent>
+  <artifactId>app-a</artifactId>
+  <build><plugins><plugin>
+    <groupId>@project.groupId@</groupId><artifactId>dependency-analyze-kit-maven-plugin</artifactId>
+    <configuration><ignored><ignored>org.springframework.boot:spring-boot-starter-jdbc</ignored></ignored></configuration>
+  </plugin></plugins></build>
+</project>

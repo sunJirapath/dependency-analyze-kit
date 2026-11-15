@@ -14,6 +14,15 @@
   <name>dependency-analyze-kit core</name>
   <description>Model, classifier and report writers. No Maven or Spring dependencies.</description>
 
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+  </build>
+
   <dependencies>
     <!-- Reads probe JSON and writes report.json; tiny, depends only on jackson-core. -->
     <dependency>

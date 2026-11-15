@@ -1,6 +1,8 @@
 package io.github.sunjirapath.dak.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
@@ -12,6 +14,27 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class ProbeReportTest {
+    @Test
+    void probeIdentityRejectsOtherModulesAndLegacyReports(@TempDir Path dir) throws IOException {
+        Path module = Files.createDirectories(dir.resolve("app-a"));
+        Path other = Files.createDirectories(dir.resolve("app-b"));
+        Path file = dir.resolve("context-identity.json");
+        String identity = ProbeReport.location(module).replace("\\", "\\\\");
+        Files.writeString(file, "{\"projectDirectory\":\"" + identity + "\",\"capturedAt\":123,\"fullAutoConfig\":true}");
+        ProbeReport report = ProbeReport.read(file, location -> null);
+        assertEquals(123L, report.capturedAt());
+        assertTrue(report.belongsTo(module));
+        assertFalse(report.belongsTo(other));
+        Files.writeString(file, "{\"fullAutoConfig\":true}");
+        ProbeReport legacy = ProbeReport.read(file, location -> null);
+        assertFalse(legacy.belongsTo(module));
+        assertEquals(0L, legacy.capturedAt());
+        for (String invalid : new String[]{"", "app-a"}) {
+            Files.writeString(file, "{\"projectDirectory\":\"" + invalid + "\"}");
+            assertFalse(ProbeReport.read(file, location -> null).belongsTo(module));
+        }
+    }
+
     @Test
     void jarRecordedThroughALinkResolvesToTheSameArtifact(@TempDir Path dir) throws IOException {
         Path real = Files.createDirectories(dir.resolve("real"));

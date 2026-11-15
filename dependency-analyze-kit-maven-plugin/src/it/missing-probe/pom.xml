@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+  <groupId>io.github.sunjirapath.it</groupId>
+  <artifactId>missing-probe</artifactId>
+  <version>1.0</version>
+  <dependencies>
+    <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId></dependency>
+  </dependencies>
+  <build><plugins><plugin>
+    <groupId>@project.groupId@</groupId>
+    <artifactId>dependency-analyze-kit-maven-plugin</artifactId>
+    <version>@project.version@</version>
+    <configuration>
+      <failOnUnused>true</failOnUnused>
+      <ignored><ignored>org.apache.commons:commons-lang3</ignored></ignored>
+    </configuration>
+    <executions><execution><goals><goal>analyze</goal></goals></execution></executions>
+  </plugin></plugins></build>
+</project>

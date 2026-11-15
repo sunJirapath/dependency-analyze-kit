@@ -60,6 +60,9 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     public abstract ConfigurableFileCollection getProbeReports();
 
     @Input
+    public abstract Property<String> getProjectDirectory();
+
+    @Input
     public abstract Property<ResolvedComponentResult> getRootComponent();
 
     @Internal
@@ -74,6 +77,9 @@ public abstract class DakAnalyzeTask extends DefaultTask {
 
     @Input
     public abstract ListProperty<String> getSideEffectStarters();
+
+    @Input
+    public abstract ListProperty<String> getAnalysisProblems();
 
     @Input
     public abstract Property<Boolean> getFailOnUnused();
@@ -98,11 +104,16 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
             List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
                     .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes);
+            List<String> problems = getAnalysisProblems().get();
+            problems.forEach(problem -> getLogger().warn("Incomplete dependency analysis: " + problem));
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             Files.createDirectories(report.toPath().getParent());
-            Files.writeString(report.toPath(), Reports.json(results, probes.size()));
+            Files.writeString(report.toPath(), Reports.json(results, probes, problems));
             getLogger().lifecycle("Dependency analysis report: " + report + " (" + probes.size() + " probe report(s))");
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
+            if (getFailOnUnused().get() && !Reports.incompleteReasons(results, probes, problems).isEmpty()) {
+                throw new GradleException("Incomplete dependency analysis: current full-context probe evidence required; see " + report);
+            }
             if (getFailOnUnused().get() && unused > 0) {
                 throw new GradleException(unused + " unused dependency candidate(s); see " + report);
             }
@@ -128,11 +139,13 @@ public abstract class DakAnalyzeTask extends DefaultTask {
         return out;
     }
 
-    /** The project's own dependency edges, minus {@code platform()} BOM imports, which bring no classes. */
+    /** The project's own dependency edges, excluding version constraints and {@code platform()} BOM imports. */
     private List<ResolvedDependencyResult> directEdges() {
         List<ResolvedDependencyResult> out = new ArrayList<>();
         for (DependencyResult edge : getRootComponent().get().getDependencies()) {
-            if (edge instanceof ResolvedDependencyResult resolved && !platform(resolved)) out.add(resolved);
+            if (edge instanceof ResolvedDependencyResult resolved && !resolved.isConstraint() && !platform(resolved)) {
+                out.add(resolved);
+            }
         }
         return out;
     }
@@ -201,7 +214,14 @@ public abstract class DakAnalyzeTask extends DefaultTask {
 
     private List<ProbeReport> probes(Map<String, ArtifactId> locations) throws IOException {
         List<ProbeReport> out = new ArrayList<>();
-        for (File file : getProbeReports().getFiles()) out.add(ProbeReport.read(file.toPath(), locations::get));
+        for (File file : getProbeReports().getFiles()) {
+            ProbeReport probe = ProbeReport.read(file.toPath(), locations::get);
+            if (probe.belongsTo(Path.of(getProjectDirectory().get()))) {
+                out.add(probe);
+            } else {
+                getLogger().warn("Skipping probe report with missing or foreign module identity: " + file);
+            }
+        }
         return out;
     }
 }
