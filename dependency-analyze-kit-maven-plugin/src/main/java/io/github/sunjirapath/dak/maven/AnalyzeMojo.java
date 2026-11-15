@@ -3,6 +3,7 @@ package io.github.sunjirapath.dak.maven;
 import io.github.sunjirapath.dak.core.ArtifactId;
 import io.github.sunjirapath.dak.core.Classifier;
 import io.github.sunjirapath.dak.core.ClassReferenceScanner;
+import io.github.sunjirapath.dak.core.DynamicRegistrations;
 import io.github.sunjirapath.dak.core.ProbeReport;
 import io.github.sunjirapath.dak.core.Reports;
 import io.github.sunjirapath.dak.core.Verdict;
@@ -109,9 +110,12 @@ public class AnalyzeMojo extends AbstractMojo {
             for (MavenProject p : session.getAllProjects()) {
                 if (p != project) modules.add(new ArtifactId(p.getGroupId(), p.getArtifactId()));
             }
+            Map<ArtifactId, Path> jars = jars();
+            Map<ArtifactId, Path> declaredJars = new LinkedHashMap<>(jars);
+            declaredJars.keySet().retainAll(declared.stream().map(Classifier.Declared::id).toList());
             List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters, modules)
-                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes,
-                            analysisProblems);
+                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(jars), probes,
+                            analysisProblems, DynamicRegistrations.scan(declaredJars));
 
             Reports.table(results).lines().forEach(getLog()::info);
             // A reactor may use one absolute output directory; never overwrite another module's report.
@@ -143,7 +147,7 @@ public class AnalyzeMojo extends AbstractMojo {
     }
 
     /** Artifacts referenced from project classes (main and test), with the referenced class names. */
-    private Map<ArtifactId, Set<String>> bytecode() throws ProjectDependencyAnalyzerException, IOException {
+    private Map<ArtifactId, Set<String>> bytecode(Map<ArtifactId, Path> jars) throws ProjectDependencyAnalyzerException, IOException {
         ProjectDependencyAnalysis analysis = analyzer.analyze(project, null);
         Map<ArtifactId, Set<String>> out = new HashMap<>();
         for (Map<Artifact, Set<DependencyUsage>> m : List.of(analysis.getUsedDeclaredArtifactsWithUsages(),
@@ -154,7 +158,7 @@ public class AnalyzeMojo extends AbstractMojo {
         try {
             Set<String> attributed = new HashSet<>();
             out.values().forEach(attributed::addAll);
-            annotationReferences(attributed).forEach((artifact, classes) ->
+            annotationReferences(attributed, jars).forEach((artifact, classes) ->
                     out.computeIfAbsent(artifact, k -> new TreeSet<>()).addAll(classes));
         } catch (IOException e) {
             if (failOnUnused) throw e;
@@ -169,10 +173,14 @@ public class AnalyzeMojo extends AbstractMojo {
      * Annotations such as {@code @EnableFeignClients} are starter usage even though they are not instructions in a
      * method body, and therefore are not always reported by the default analyzer.
      */
-    private Map<ArtifactId, Set<String>> annotationReferences(Set<String> attributed) throws IOException {
+    private Map<ArtifactId, Set<String>> annotationReferences(Set<String> attributed, Map<ArtifactId, Path> jars) throws IOException {
         Set<String> references = ClassReferenceScanner.scan(List.of(
                 Path.of(project.getBuild().getOutputDirectory()), Path.of(project.getBuild().getTestOutputDirectory())));
         references.removeAll(attributed);
+        return ClassReferenceScanner.owners(references, jars);
+    }
+
+    private Map<ArtifactId, Path> jars() {
         Map<ArtifactId, Path> jars = new LinkedHashMap<>();
         for (Artifact artifact : project.getArtifacts()) {
             File file = artifact.getFile();
@@ -180,7 +188,7 @@ public class AnalyzeMojo extends AbstractMojo {
                 jars.putIfAbsent(id(artifact), file.toPath());
             }
         }
-        return ClassReferenceScanner.owners(references, jars);
+        return jars;
     }
 
     /**

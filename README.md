@@ -203,11 +203,11 @@ previously captured files/logs may contain raw messages.
 | Verdict | Meaning | What to do |
 |---|---|---|
 | `USED_BYTECODE` | Project classes reference the dependency's jar, or a jar only it brings in. | Keep it. |
-| `USED_BEAN` | A bean from it (or from a jar only it brings in) is injected, directly or transitively, into one of your beans. | Keep it. |
+| `USED_BEAN` | A bean from it (or from a jar only it brings in) is injected into your beans, or is a non-framework startup runner/listener. | Keep it. |
 | `USED_AUTOCONFIG` | One of its auto-configurations matched, and it is a side-effect starter: actuator, security, template engines, web-services, cache, validation, AOP/AspectJ, Resilience4j, Spring Cloud Stream binders, Micrometer registries and tracing bridges, OpenTelemetry, OAuth2 resource server, springdoc, H2 console, properties migrator, Jackson XML/Kotlin modules, Jetty HTTP/2, Caffeine and Feign HTTP clients, plus your `sideEffectStarters`. | Keep it. |
-| `UNUSED_CANDIDATE` | None of the above, in at least one full (non-slice) test context. | Remove it and run the tests. If something breaks at runtime, add it to `ignored` (see [Known gaps](#known-gaps)). |
+| `UNUSED_CANDIDATE` | No usage evidence or retention rule applies, in at least one full (non-slice) test context. This is a candidate, not proof. | Review it before removal, then run the tests. Reflection-only use needs `ignored` (see [Known gaps](#known-gaps)). |
 | `IGNORED` | It would be unused or unknown, but it is on the built-in or configured ignore list. | Nothing. |
-| `UNKNOWN` | No probe report, or only slice-test contexts were observed. Nothing is ever reported as unused without runtime evidence. | Run with `-Ddak.enabled=true` and add a `@SpringBootTest`. |
+| `UNKNOWN` | Missing/incomplete runtime evidence, unresolved reached bean locations, dynamic registrations, or test/provided scope prevents an unused verdict. | Retain it; review the summary and probe coverage. |
 
 A matched auto-configuration on its own does **not** count as usage. `@ConditionalOnClass` matches simply because
 the jar is on the classpath.
@@ -355,8 +355,18 @@ configuration change is needed for custom Maven build directories.
 
 ### Known gaps
 
-- **No class-loading or JFR tracing.** Usage through `ServiceLoader`/SPI, JDBC drivers, logging backends, reflection,
-  or templates only (e.g. a Thymeleaf view) is invisible, so these can show up as false `UNUSED_CANDIDATE`s. The
+- **Jar registrations retain dependencies.** A declared dependency's own jar containing a non-empty
+  `META-INF/services/*` file is retained as `UNKNOWN` unless stronger usage evidence exists. `META-INF/spring.factories`
+  and `META-INF/spring/*.imports` also retain it unless the probe has matched or unmatched auto-config evidence for
+  that artifact. Transitive jars do not trigger this rule for their owner. Unreadable or unsafe declared jars retain too.
+- **Startup runners/listeners count as usage.** Beans implementing `ApplicationRunner`, `CommandLineRunner` or
+  `ApplicationListener` credit their artifacts even without an injection consumer. Beans whose class names start
+  with `org.springframework.` and beans implementing only `Lifecycle`/`SmartLifecycle` do not trigger this rule.
+- **Scope and location limits retain dependencies.** Test/provided declarations never become `UNUSED_CANDIDATE`;
+  runtime declarations remain reportable. An unresolved location on a reached dependency bean, project-module root
+  or factory-product root makes otherwise unused dependencies `UNKNOWN`. Unreached probe-only beans do not.
+- **No class-loading or JFR tracing.** Reflection-only or template-only usage (e.g. a Thymeleaf view) still needs
+  `ignored`; `UNUSED_CANDIDATE` cannot prove such usage absent. Registrations do not prove that a provider ran. The
   built-in ignore list covers JDBC drivers, logging backends and bridges, annotation processors, devtools,
   docker-compose, ehcache (JCache), commons-pool2 and feign-micrometer. Feign's per-client contexts are not probed either.
 - **Startup migrations need manual review.** `flyway-core`, `liquibase-core`, `spring-boot-starter-flyway` and
@@ -516,18 +526,22 @@ probe จะทำงานเฉพาะเมื่อใส่ `-Ddak.enable
 | ผล | ความหมาย | ควรทำอะไร |
 |---|---|---|
 | `USED_BYTECODE` | โค้ดในโปรเจกต์อ้างถึง jar ของมัน หรือ jar ที่มันดึงเข้ามาแต่เพียงผู้เดียว | เก็บไว้ |
-| `USED_BEAN` | bean จากมันถูก inject เข้า bean ของโปรเจกต์ (ทางตรงหรือทางอ้อม) | เก็บไว้ |
+| `USED_BEAN` | bean จากมันถูก inject เข้า bean ของโปรเจกต์ หรือเป็น startup runner/listener ที่ไม่ใช่คลาสภายใน Spring | เก็บไว้ |
 | `USED_AUTOCONFIG` | auto-config ของมัน match และเป็น starter ที่ทำงานด้วยตัวเอง (actuator, security, template engine, cache, validation, AOP, Resilience4j, Micrometer registry ฯลฯ) | เก็บไว้ |
-| `UNUSED_CANDIDATE` | ไม่มีหลักฐานข้างบนเลย ใน test context เต็มอย่างน้อยหนึ่งตัว | ลองลบแล้วรันเทสต์ ถ้าพังตอนรันจริงให้ใส่ใน `ignored` |
+| `UNUSED_CANDIDATE` | ไม่พบหลักฐานการใช้หรือกฎให้เก็บไว้ ใน test context เต็มอย่างน้อยหนึ่งตัว ยังไม่ใช่ข้อพิสูจน์ว่าไม่ใช้ | ตรวจสอบก่อนลบแล้วรันเทสต์ การใช้ผ่าน reflection อย่างเดียวต้องใส่ใน `ignored` |
 | `IGNORED` | อยู่ใน ignore list (เช่น JDBC driver, logging backend) | ไม่ต้องทำอะไร |
-| `UNKNOWN` | ไม่มี probe report หรือมีแค่ slice test | รันด้วย `-Ddak.enabled=true` และเพิ่ม `@SpringBootTest` |
+| `UNKNOWN` | หลักฐานไม่ครบ, location ของ bean ที่เข้าถึงแมปไม่ได้, มี dynamic registration หรือเป็น scope test/provided | เก็บไว้และตรวจ summary กับความครอบคลุมของ probe |
 
 auto-config ที่ match อย่างเดียว **ไม่นับ** ว่าใช้ เพราะ `@ConditionalOnClass` จะ match ทันทีที่ jar อยู่บน classpath
 
 ### ข้อจำกัดสำคัญ
 
-- มองไม่เห็นการใช้ผ่าน `ServiceLoader`/SPI, reflection หรือ template อย่างเดียว อาจได้ `UNUSED_CANDIDATE` ผิด ๆ
-  (JDBC driver และ logging backend อยู่ใน ignore list ให้แล้ว)
+- jar ของ dependency ที่ประกาศเองซึ่งมี `META-INF/services/*` ที่ไม่ว่างจะถูกเก็บไว้ เช่นเดียวกับ `spring.factories`/`spring/*.imports`
+  ที่ยังไม่มีหลักฐาน auto-config matched/unmatched; ไม่ใช้กฎนี้กับ jar ทางอ้อม และ jar ที่อ่านไม่ได้จะถูกเก็บไว้
+- startup runner/listener ที่ไม่ใช่คลาสภายใน Spring นับว่าใช้ แม้ไม่มี bean อื่น inject; ไม่รวม Lifecycle/SmartLifecycle อย่างเดียว
+- scope test/provided ไม่เป็น `UNUSED_CANDIDATE` แต่ runtime ยังรายงานได้; location ที่แมปไม่ได้ของ bean ที่เข้าถึงจากโปรเจกต์ทำให้เก็บไว้
+  ส่วน bean ที่ไม่ถูกเข้าถึงไม่กระทบ dependency อื่น
+- reflection หรือ template อย่างเดียวยังต้องใส่ `ignored`; `UNUSED_CANDIDATE` เป็นเพียงตัวเลือกให้ตรวจ ไม่ใช่ข้อพิสูจน์ว่าไม่ใช้
 - หลักฐานครอบคลุมเฉพาะสิ่งที่เทสต์รันถึง ผลขึ้นกับ profile และ property ให้รันแยกทีละ profile
 - artifact ที่ starter หลายตัวใช้ร่วมกันจะไม่นับให้ใครเลย ยกเว้นตัวที่ตัวอื่นทุกตัวดึงเข้ามาทั้งก้อน รายละเอียดดู [Known gaps](#known-gaps)
 

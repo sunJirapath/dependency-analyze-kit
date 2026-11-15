@@ -103,6 +103,7 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
         for (String name : bf.getBeanDefinitionNames()) {
             Set<String> classes = new LinkedHashSet<>();
             String type = null;
+            boolean sideEffect = false;
             try {
                 Class<?> t = bf.getType(name, false);
                 if (t != null && Proxy.isProxyClass(t)) {
@@ -113,6 +114,8 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
                     type = ClassUtils.getUserClass(t).getName();
                     classes.add(type);
                 }
+                sideEffect = t != null && !ClassUtils.getUserClass(t).getName().startsWith("org.springframework.")
+                        && sideEffectType(t);
             } catch (Exception | LinkageError ignored) {
                 // ponytail: a type we cannot resolve contributes no evidence
             }
@@ -123,8 +126,9 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
             json.open('{').field("name").str(name).field("type").str(type)
                     .field("locations").strs(locations(classes, cl))
                     .field("factoryBean").str(bd.getFactoryBeanName())
-                    .field("dependencies").strs(Arrays.asList(bf.getDependenciesForBean(name)))
-                    .close('}');
+                    .field("dependencies").strs(Arrays.asList(bf.getDependenciesForBean(name)));
+            if (sideEffect) json.field("sideEffect").raw("true");
+            json.close('}');
         }
         json.close(']').close('}');
 
@@ -144,6 +148,17 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    /** Match by name to avoid coupling the probe to runner/listener API versions. */
+    private static boolean sideEffectType(Class<?> type) {
+        if (type == null) return false;
+        if (Set.of("org.springframework.boot.ApplicationRunner", "org.springframework.boot.CommandLineRunner",
+                "org.springframework.context.ApplicationListener").contains(type.getName())) return true;
+        for (Class<?> contract : type.getInterfaces()) {
+            if (sideEffectType(contract)) return true;
+        }
+        return sideEffectType(type.getSuperclass());
     }
 
     /** Full auto-configuration (not a test slice): every registered auto-configuration was considered. */

@@ -3,6 +3,7 @@ package io.github.sunjirapath.dak.gradle;
 import io.github.sunjirapath.dak.core.ArtifactId;
 import io.github.sunjirapath.dak.core.Classifier;
 import io.github.sunjirapath.dak.core.ClassReferenceScanner;
+import io.github.sunjirapath.dak.core.DynamicRegistrations;
 import io.github.sunjirapath.dak.core.ProbeReport;
 import io.github.sunjirapath.dak.core.Reports;
 import io.github.sunjirapath.dak.core.Verdict;
@@ -109,8 +110,12 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             Map<String, String> scopes = getScopes().get();
             Set<ArtifactId> runtimeOnly = new HashSet<>();
             declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
+            Map<ArtifactId, Path> jars = jars(ids);
+            Map<ArtifactId, Path> declaredJars = new LinkedHashMap<>(jars);
+            declaredJars.keySet().retainAll(declared.stream().map(Classifier.Declared::id).toList());
             List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
-                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes, problems);
+                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(jars), probes, problems,
+                            DynamicRegistrations.scan(declaredJars));
             problems.forEach(problem -> getLogger().warn("Incomplete dependency analysis: " + problem));
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
             OutputDirectory.validateForExecution(report.toPath().getParent(),
@@ -197,16 +202,20 @@ public abstract class DakAnalyzeTask extends DefaultTask {
         }
     }
 
-    private Map<ArtifactId, Set<String>> bytecode(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {
+    private Map<ArtifactId, Set<String>> bytecode(Map<ArtifactId, Path> jars) throws IOException {
         Set<Path> roots = new HashSet<>();
         for (File file : getProjectClasses().getFiles()) roots.add(file.toPath());
+        return ClassReferenceScanner.owners(ClassReferenceScanner.scan(roots), jars);
+    }
+
+    private Map<ArtifactId, Path> jars(Map<ComponentIdentifier, ArtifactId> ids) {
         Map<ArtifactId, Path> jars = new LinkedHashMap<>();
         for (ResolvedArtifactResult artifact : getArtifacts().get()) {
             ArtifactId id = ids.get(artifact.getId().getComponentIdentifier());
             File file = artifact.getFile();
             if (id != null && file.isFile() && file.getName().endsWith(".jar")) jars.putIfAbsent(id, file.toPath());
         }
-        return ClassReferenceScanner.owners(ClassReferenceScanner.scan(roots), jars);
+        return jars;
     }
 
     private Map<String, ArtifactId> locations(Map<ComponentIdentifier, ArtifactId> ids) throws IOException {

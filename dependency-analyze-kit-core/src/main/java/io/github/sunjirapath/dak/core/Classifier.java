@@ -278,6 +278,14 @@ public final class Classifier {
     public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
                                  Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes,
                                  List<String> problems) {
+        return classify(declared, owner, bytecode, probes, problems, Map.of());
+    }
+
+    /** Dynamic registrations belong to the declared jar itself, never its transitive closure. */
+    public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
+                                 Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes,
+                                 List<String> problems, Map<ArtifactId, String> dynamicRegistrations) {
+        List<String> analysisProblems = new ArrayList<>(problems);
         Map<ArtifactId, Set<Evidence>> found = new HashMap<>();
         bytecode.forEach((a, classes) -> credit(found, owner, Set.of(a), new Evidence(Kind.BYTECODE,
                 a + ": " + classes.stream().sorted().findFirst().orElse("?")
@@ -293,7 +301,7 @@ public final class Classifier {
                                 ac.name() + " did not match: " + String.join("; ", ac.messages())));
             }
         }
-        beanEvidence(probes, found, owner, modules);
+        analysisProblems.addAll(beanEvidence(probes, found, owner, modules));
 
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
@@ -327,9 +335,21 @@ public final class Classifier {
                         : unmatched != null ? unmatched.detail()
                         : "no bytecode reference, bean or auto-configuration";
             }
-            if (verdict == Verdict.UNUSED_CANDIDATE && !problems.isEmpty()) {
+            if (verdict == Verdict.UNUSED_CANDIDATE && !analysisProblems.isEmpty()) {
                 verdict = Verdict.UNKNOWN;
                 summary = "incomplete dependency analysis; retain dependency";
+            }
+            String registration = dynamicRegistrations.get(d.id());
+            boolean springOnly = DynamicRegistrations.FACTORIES.equals(registration)
+                    || DynamicRegistrations.IMPORTS.equals(registration);
+            if (verdict == Verdict.UNUSED_CANDIDATE && registration != null
+                    && !(springOnly && (matched != null || unmatched != null))) {
+                verdict = Verdict.UNKNOWN;
+                summary = "ships dynamic-loading registrations (" + registration + "); retain dependency";
+            }
+            if (verdict == Verdict.UNUSED_CANDIDATE && ("test".equals(d.scope()) || "provided".equals(d.scope()))) {
+                verdict = Verdict.UNKNOWN;
+                summary = d.scope() + " scope: probe evidence cannot show it is unused; retain dependency";
             }
             if (verdict == Verdict.UNUSED_CANDIDATE || verdict == Verdict.UNKNOWN) {
                 String reason = ignoreReason(d.id());
@@ -345,8 +365,9 @@ public final class Classifier {
     }
 
     /** Credits beans reachable from a project bean through injection / depends-on edges. */
-    private static void beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
+    private static List<String> beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
                                      Map<ArtifactId, ArtifactId> owner, Set<ArtifactId> modules) {
+        Set<String> problems = new LinkedHashSet<>();
         Map<String, List<Integer>> contextsByKey = new HashMap<>();
         Map<BeanKey, ProbeReport.Bean> beans = new LinkedHashMap<>();
         for (int i = 0; i < probes.size(); i++) {
@@ -360,6 +381,10 @@ public final class Classifier {
         Set<BeanKey> roots = new LinkedHashSet<>();
         Map<BeanKey, List<BeanKey>> products = new HashMap<>();
         beans.forEach((key, bean) -> {
+            if (bean.sideEffect()) {
+                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
+                        "side-effect bean '" + bean.name() + "' (" + bean.type() + ") runs at startup"));
+            }
             if (bean.artifacts().contains(ArtifactId.PROJECT)) {
                 roots.add(key);
             } else if (bean.artifacts().stream().anyMatch(modules::contains)) {
@@ -414,6 +439,10 @@ public final class Classifier {
         });
         reachedFrom.forEach((key, root) -> {
             ProbeReport.Bean bean = beans.get(key);
+            if (!bean.unmappedLocations().isEmpty() && (!roots.contains(key)
+                    || bean.artifacts().stream().anyMatch(modules::contains) || bean.factoryBean() != null)) {
+                problems.add("reached bean '" + bean.name() + "' loaded from an unresolved location; retain dependencies");
+            }
             if (!roots.contains(key)) {
                 BeanGroup group = new BeanGroup(key.name(), bean.type());
                 BeanKey witness = witnesses.get(group);
@@ -421,6 +450,7 @@ public final class Classifier {
                         "bean '" + group.name() + "' (" + bean.type() + ") used by project bean '" + witness.name() + "'"));
             }
         });
+        return List.copyOf(problems);
     }
 
     private record BeanKey(int context, String name) {}

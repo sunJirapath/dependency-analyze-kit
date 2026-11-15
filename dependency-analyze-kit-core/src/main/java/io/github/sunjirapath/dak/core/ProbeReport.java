@@ -34,7 +34,17 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
     public record AutoConfig(String name, boolean matched, Set<ArtifactId> artifacts, List<String> messages) {}
 
     /** A bean definition: the artifacts its classes came from and the beans injected into it. */
-    public record Bean(String name, String type, Set<ArtifactId> artifacts, String factoryBean, List<String> dependencies) {}
+    public record Bean(String name, String type, Set<ArtifactId> artifacts, String factoryBean, List<String> dependencies,
+                       Set<String> unmappedLocations, boolean sideEffect) {
+        public Bean(String name, String type, Set<ArtifactId> artifacts, String factoryBean, List<String> dependencies) {
+            this(name, type, artifacts, factoryBean, dependencies, Set.of(), false);
+        }
+
+        public Bean(String name, String type, Set<ArtifactId> artifacts, String factoryBean, List<String> dependencies,
+                    boolean sideEffect) {
+            this(name, type, artifacts, factoryBean, dependencies, Set.of(), sideEffect);
+        }
+    }
 
     /**
      * Reads one probe file. {@code locate} maps a class location (jar file or classes directory), as recorded or as
@@ -108,12 +118,15 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
                 strings(m.get("profiles")),
                 maps(m.get("autoConfigs")).stream()
                         .map(a -> new AutoConfig(requiredString(a.get("name")), Boolean.TRUE.equals(a.get("matched")),
-                                artifacts(a.get("locations"), locate), strings(a.get("messages"))))
+                                artifacts(a.get("locations"), locate).artifacts(), strings(a.get("messages"))))
                         .toList(),
                 maps(m.get("beans")).stream()
-                        .map(b -> new Bean((String) b.get("name"), (String) b.get("type"),
-                                artifacts(b.get("locations"), locate), (String) b.get("factoryBean"),
-                                strings(b.get("dependencies"))))
+                        .map(b -> {
+                            Located locations = artifacts(b.get("locations"), locate);
+                            return new Bean((String) b.get("name"), (String) b.get("type"),
+                                    locations.artifacts(), (String) b.get("factoryBean"), strings(b.get("dependencies")),
+                                    locations.unmappedLocations(), Boolean.TRUE.equals(b.get("sideEffect")));
+                        })
                         .toList(), (String) m.get("contextKey"), (String) m.get("parentContextKey"),
                 (String) m.get("projectDirectory"),
                 m.get("capturedAt") instanceof Number time ? time.longValue() : 0L);
@@ -142,14 +155,18 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
         }
     }
 
-    private static Set<ArtifactId> artifacts(Object locations, Function<String, ArtifactId> locate) {
+    private record Located(Set<ArtifactId> artifacts, Set<String> unmappedLocations) {}
+
+    private static Located artifacts(Object locations, Function<String, ArtifactId> locate) {
         Set<ArtifactId> out = new LinkedHashSet<>();
+        Set<String> unmapped = new LinkedHashSet<>();
         for (String s : strings(locations)) {
             ArtifactId id = locate.apply(s);
             if (id == null) id = locate.apply(location(Path.of(s)));
             if (id != null) out.add(id);
+            else unmapped.add(s);
         }
-        return out;
+        return new Located(out, unmapped);
     }
 
     @SuppressWarnings("unchecked")
