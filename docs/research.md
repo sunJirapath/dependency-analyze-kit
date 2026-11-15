@@ -7,7 +7,7 @@ Date: 2026-10-16. Sources were checked against code (cloned repos, `javap` on lo
 1. **Build it; don't contribute.** No existing tool joins runtime condition evidence with bytecode analysis and the dependency graph. Closest prior art is `boot-usage` (a runtime-only Actuator endpoint). It has the false-positive problem described in #3.
 2. **Wrap the default analyzer.** `ProjectDependencyAnalyzer` can be injected into our own Mojo. Its result object can be rebuilt. No bytecode scanning to rewrite.
 3. **Design flaw found: "auto-config matched" is not evidence of use.** `@ConditionalOnClass` matches *because the jar is on the classpath*. An unused `spring-boot-starter-data-redis` still matches `RedisAutoConfiguration` and still creates a `RedisTemplate` bean. Under the current rules, IT #1 (redis must be `UNUSED_CANDIDATE`) can't pass. Proposed fix: count *consumption*, not *presence* (§5.1).
-4. **Spring Boot 4.x is current (4.1.1); 3.5.x is the last 3.x line.** The APIs we need are the same in both. Boot 4 split auto-configuration into per-technology jars, which makes attribution *easier*. Boot 3 keeps every auto-config in one shared jar (`spring-boot-autoconfigure`), so attribution there has to go through `@ConditionalOnClass` targets (§5.2).
+4. **The tested Spring Boot versions are 3.5.16 and 4.1.1 for Maven, plus 3.5.16 and 4.0.8 for Gradle.** Boot 4.1.1 splits auto-configuration into per-technology jars, which makes attribution *easier*. Boot 3.5.16 keeps built-in auto-configurations in one shared jar (`spring-boot-autoconfigure`), so attribution there has to go through `@ConditionalOnClass` targets (§5.2). Boot 2.x, Boot 3.0-3.4, other Boot 3.5 patch versions, and other Boot 4.x versions are not claimed.
 
 ---
 
@@ -34,7 +34,7 @@ Date: 2026-10-16. Sources were checked against code (cloned repos, `javap` on lo
 
 **boot-usage** (`StarterUsageAnalyzer.java`). Hardcoded starter → auto-config FQCN map. Example: `spring-boot-starter-data-redis` → `org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration`. It returns `USED` as soon as any mapped auto-config matched. That gives two bugs we must avoid:
 - (a) An unused redis starter reports USED, because the auto-config matches on class presence alone.
-- (b) The 3.x FQCNs don't exist in Boot 4.
+- (b) The Boot 3.5.16 FQCNs don't exist in Boot 4.1.1.
 
 It has no bytecode or graph join and is not a Maven plugin.
 <https://github.com/dhruv-15-03/boot-usage>
@@ -68,9 +68,9 @@ public interface ProjectDependencyAnalyzer {                       // no ROLE co
   `exclusive(D) = closure(D) − ⋃ closure(other declared)`
   The comparison uses `groupId:artifactId`, ignoring version. The cost is N collect calls, and resolver caching makes them cheap.
 
-## 3. Spring Boot APIs (3.5.x vs 4.1.1)
+## 3. Spring Boot APIs (3.5.16 vs 4.1.1)
 
-Source: `javap` on local Boot 4.1.1 jars; Boot 3.5.x from `spring-projects/spring-boot` branch `3.5.x`.
+Source: `javap` on local Boot 4.1.1 jars; Boot 3.5.16 from the `spring-projects/spring-boot` 3.5.x branch. Repository integration tests exercise the listed versions; this comparison does not claim other patch or minor versions.
 
 | Need | API | 3.5 = 4.1? |
 |---|---|---|
@@ -134,8 +134,8 @@ So `USED_AUTOCONFIG` and `USED_BEAN` would both fire for the unused starter in I
 
 ### 5.2 Attributing an auto-config to a jar
 
-In Boot 3.x every built-in auto-config lives in `spring-boot-autoconfigure`. That jar is shared by every starter, so by the starter rule it counts for none of them. The probe therefore records, for each auto-config (matched or not):
-- the jar of the auto-config class (this alone is enough on Boot 4 and for third-party starters), and
+In Boot 3.5.16 every built-in auto-config lives in `spring-boot-autoconfigure`. That jar is shared by every starter, so by the starter rule it counts for none of them. The probe therefore records, for each auto-config (matched or not):
+- the jar of the auto-config class (this alone is enough on Boot 4.1.1 and for third-party starters), and
 - the jars of the classes named in its `@ConditionalOnClass`, read with `MergedAnnotations` and resolved through the class loader.
 
 The classifier attributes the auto-config to every declared dependency whose own jar or exclusive closure contains any of those jars. This works the same way on 3.x and 4.x.
@@ -177,7 +177,7 @@ dependency-analyze-kit/                     parent POM (io.github.sunjirapath, A
 ├── dependency-analyze-kit-core/            model (ArtifactKey, Evidence, Verdict), Classifier, ConsoleTable/JsonReport writers
 │                                           dependency: jackson-jr-objects (read probe JSON + write report.json; ~100 KB, no transitive deps beyond jackson-core)
 ├── dependency-analyze-kit-spring-probe/    ApplicationContextInitializer + listener, hand-written JSON
-│                                           dependency: spring-boot (provided) — compiled against 3.5.x, binary-compatible with 4.x (same APIs)
+│                                           dependency: spring-boot (provided) — compiled against 3.5.16; ITs also exercise 4.0.8 and 4.1.1
 └── dependency-analyze-kit-maven-plugin/    AnalyzeMojo (@Mojo analyze, defaultPhase VERIFY, requiresDependencyResolution TEST)
                                             deps: maven-plugin-api/annotations/core (provided), maven-dependency-analyzer 1.17.2, core
                                             src/it/{web-redis-unused, jpa-h2, conditional-property, no-probe}
@@ -198,7 +198,7 @@ What the Mojo does, in order:
 
 1. **Accept §5.1 (consumption-based `USED_BEAN`, side-effect list for `USED_AUTOCONFIG`)?** The literal design can't pass IT #1.
 2. **IT #2 assertion:** "not `UNUSED_CANDIDATE`, evidence names the JPA auto-config" instead of literal `USED_AUTOCONFIG`. OK?
-3. **Boot version for ITs:** all 4 on 3.5.x as specified? Or also run IT #1 on 4.1.x, since 4.x is the current line? It's one extra IT; the probe compiles against 3.5 either way.
+3. **Boot version for ITs:** integration coverage exercises Boot 3.5.16 and 4.1.1 in Maven, and 3.5.16 and 4.0.8 in Gradle.
 4. **Add the `IGNORED` verdict** for the built-in and user ignore lists? The alternative is silently dropping ignored dependencies.
 5. **`jackson-jr-objects` in core:** justification is that it reads probe JSON and writes `report.json` without hand-rolling a parser. OK, or hand-roll?
 

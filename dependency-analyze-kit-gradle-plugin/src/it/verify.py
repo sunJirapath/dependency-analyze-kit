@@ -1,6 +1,6 @@
 """Gradle integration test: runs src/it/multi-project against the plugin and probe installed in mavenLocal.
 
-Usage: python3 verify.py [gradle-executable]   (run `mvn install -DskipTests -Dinvoker.skip=true` first)
+Usage: python3 verify.py [gradle-executable] [boot-version]   (run `mvn install -DskipTests -Dinvoker.skip=true` first)
 """
 import json
 import shutil
@@ -11,15 +11,19 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MODULE = HERE.parent.parent
-WORK = MODULE / "target" / "it" / "multi-project"
+GRADLE = sys.argv[1] if len(sys.argv) > 1 else "gradle"
+BOOT_VERSION = sys.argv[2] if len(sys.argv) > 2 else "4.0.8"
+if BOOT_VERSION not in ("3.5.16", "4.0.8"):
+    sys.exit(f"Unsupported Boot IT version: {BOOT_VERSION}")
+WORK = MODULE / "target" / "it" / f"multi-project-{BOOT_VERSION}"
 PROBES = WORK / "app" / "build" / "dependency-analyze-kit" / "test"
 REPORT = WORK / "app" / "build" / "dependency-analyze-kit" / "report.json"
-GRADLE = sys.argv[1] if len(sys.argv) > 1 else "gradle"
 VERSION = ET.parse(MODULE / "pom.xml").find("{http://maven.apache.org/POM/4.0.0}parent/{http://maven.apache.org/POM/4.0.0}version").text
 
 
 def gradle(step, *extra, succeeds=True):
-    args = [GRADLE, "-p", str(WORK), "--configuration-cache", "--console=plain", f"-PdakVersion={VERSION}", "check", *extra]
+    args = [GRADLE, "-p", str(WORK), "--configuration-cache", "--console=plain",
+            f"-PdakVersion={VERSION}", f"-PbootVersion={BOOT_VERSION}", "check", *extra]
     result = subprocess.run(args, capture_output=True, text=True)
     out = result.stdout + result.stderr
     (MODULE / "target" / "it" / f"{step}.log").write_text(out)
@@ -85,7 +89,9 @@ check(sum(d["dependency"] == "org.apache.commons:commons-lang3" for d in data["d
 json_starter = expect(deps, pretty, "org.springframework.boot:spring-boot-starter-json", "runtime", "UNUSED_CANDIDATE")
 # auto-configuration evidence only comes from a probe report
 check(any(e["kind"] == "AUTOCONFIG_MATCHED" and "JacksonAutoConfiguration matched" in e["detail"]
-          for e in json_starter["evidence"]), "starter-json: no probe evidence", pretty)
+          for e in json_starter["evidence"]),
+      "Boot 3.5.16: starter-json missing Jackson @ConditionalOnClass attribution"
+      if BOOT_VERSION == "3.5.16" else "starter-json: no probe evidence", pretty)
 first = data
 
 # 2. no changes: configuration cache reused, but evidence must be produced again.
@@ -190,4 +196,4 @@ data, deps, pretty = report()
 check(data["probeReports"] == 0, "absent-probe: unexpected evidence", pretty)
 check(all(d["verdict"] != "UNKNOWN" for d in deps.values()), "absent-probe: full-context guard not isolated", pretty)
 
-print("Gradle IT passed: README setup, multi-project, BOM, constraints, strict repositories, scopes, configuration cache, fail-closed evidence lifecycle")
+print(f"Gradle IT passed on Boot {BOOT_VERSION}: README setup, multi-project, BOM, constraints, strict repositories, scopes, configuration cache, fail-closed evidence lifecycle")

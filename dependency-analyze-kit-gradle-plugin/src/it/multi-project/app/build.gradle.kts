@@ -29,7 +29,7 @@ extensions.configure<io.github.sunjirapath.dak.gradle.DakExtension>("dak") {
 group = "it"
 
 dependencies {
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:4.0.8"))
+    implementation(platform("org.springframework.boot:spring-boot-dependencies:${property("bootVersion")}"))
     implementation(project(":lib"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.apache.commons:commons-lang3")

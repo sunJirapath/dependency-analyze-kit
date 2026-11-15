@@ -4,7 +4,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)](https://central.sonatype.com/artifact/io.github.sunjirapath/dependency-analyze-kit-maven-plugin)
 [![License](https://img.shields.io/github/license/sunJirapath/dependency-analyze-kit)](LICENSE)
 [![Java 17+ / Maven 3.9+](https://img.shields.io/badge/Java%2017%2B-Maven%203.9%2B-blue)](#install)
-[![Spring Boot 3 / 4](https://img.shields.io/badge/Spring%20Boot-3%20%2F%204-green)](#install)
+[![Spring Boot 3.5.16 / 4.0.8 / 4.1.1](https://img.shields.io/badge/Spring%20Boot-3.5.16%20%2F%204.0.8%20%2F%204.1.1-green)](#install)
 
 Maven and Gradle plugins that find unused dependencies in Spring Boot projects, without the false positives of
 `mvn dependency:analyze`.
@@ -30,8 +30,9 @@ Background and design decisions: [docs/research.md](docs/research.md). ตรว
 Latest version: **0.1.0**, available on Maven Central. Group `io.github.sunjirapath`, artifacts
 `dependency-analyze-kit-maven-plugin` and `dependency-analyze-kit-spring-probe`.
 
-**Supported:** Java 17+, Maven 3.9+ (CI also runs Maven 4.0.0-rc-7), Spring Boot 3.x and 4.x. CI runs on Linux
-(Java 17 and 21), Windows and macOS. Your tests need at least one `@SpringBootTest`.
+**Tested:** Java 17 and 21; Maven 3.9+ (CI also runs Maven 4.0.0-rc-7); Spring Boot 3.5.16 (Maven and Gradle),
+4.0.8 (Gradle), and 4.1.1 (Maven). Spring Boot 2.x, 3.0-3.4, other 3.5 patch versions, and other 4.x versions are not claimed.
+CI runs on Linux (Java 17 and 21), Windows and macOS. Your tests need at least one `@SpringBootTest`.
 
 Add the probe and the plugin to your Spring Boot project:
 
@@ -382,7 +383,7 @@ mvn verify
 ```
 
 This runs the unit tests and the maven-invoker integration tests in `dependency-analyze-kit-maven-plugin/src/it`.
-The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
+The Maven integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 
 | IT | Checks |
 |---|---|
@@ -405,13 +406,13 @@ The integration tests use Boot 3.5.16, plus one on Boot 4.1.1:
 The first run fills an isolated repository under `target/local-repo`, which can take several minutes.
 CI runs on Linux (Java 17 and 21), Windows and macOS, plus Maven 4 as a non-blocking job.
 
-The Gradle plugin's integration test runs a multi-project Boot 4 build ([`multi-project`](dependency-analyze-kit-gradle-plugin/src/it/multi-project))
-and checks `report.json`, the README extension configuration, constraint exclusion, excluded-scope diagnostics, strict settings repositories,
-configuration-cache reuse and current probe evidence.
-It needs Python 3 and Gradle 9.8.1 on the path (CI runs it on Linux, Java 21):
+The Gradle plugin's integration test runs the full multi-project fixture ([`multi-project`](dependency-analyze-kit-gradle-plugin/src/it/multi-project))
+on Boot 3.5.16 and 4.0.8. It checks `report.json`, the README extension configuration, constraint exclusion, excluded-scope diagnostics,
+strict settings repositories, configuration-cache reuse and current probe evidence, including Boot 3 `@ConditionalOnClass` attribution.
+It needs Python 3 and Gradle 9.8.1 on the path (CI runs both Boot versions on Java 17 and 21):
 
 ```bash
-mvn install -DskipTests -Dinvoker.skip=true && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py
+mvn install -DskipTests -Dinvoker.skip=true && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py gradle 3.5.16 && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py gradle 4.0.8
 ```
 
 To try an unreleased snapshot of `main` in your own project, install it locally with
@@ -452,7 +453,7 @@ Maven และ Gradle plugins สำหรับหา dependency ที่ไ�
 เวอร์ชันล่าสุด **0.1.0** บน Maven Central: `io.github.sunjirapath:dependency-analyze-kit-maven-plugin:0.1.0`
 และ `io.github.sunjirapath:dependency-analyze-kit-spring-probe:0.1.0` (ใส่เป็น `test` scope) ดูตัวอย่าง XML ที่ [Install](#install)
 
-**รองรับ:** Java 17 ขึ้นไป, Maven 3.9 ขึ้นไป (ทดสอบ Maven 4.0.0-rc-7 ใน CI ด้วย), Spring Boot 3.x และ 4.x
+**เวอร์ชันที่ทดสอบ:** Java 17 และ 21, Maven 3.9 ขึ้นไป (ทดสอบ Maven 4.0.0-rc-7 ใน CI ด้วย), Spring Boot 3.5.16 (Maven และ Gradle), 4.0.8 (Gradle) และ 4.1.1 (Maven) ไม่ได้อ้างว่ารองรับ Spring Boot 2.x, 3.0-3.4, patch version อื่นของ 3.5 หรือ version อื่นของ 4.x
 ต้องมี `@SpringBootTest` อย่างน้อยหนึ่งตัว
 
 ### เริ่มต้นใช้งาน
