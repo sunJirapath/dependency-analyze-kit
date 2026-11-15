@@ -104,6 +104,12 @@ dependency constraint edges are skipped; a dependency that is also constrained i
 `implementation`/`api` dependencies are reported as `compile` scope, `runtimeOnly` ones as `runtime`.
 The task is configuration-cache compatible.
 
+Probe file modification times and `capturedAt` must both be at or after this build's execution start;
+run the tests in the same Gradle invocation, even when `dakPrepare` is excluded.
+
+The Gradle `dak.outputDirectory` setting defaults to `build/dependency-analyze-kit` and must be strictly inside
+the project's build directory (for example, `build/reports/dak`), after normalization and resolving existing symlinks/junctions; unsafe paths fail before deletion or writing.
+
 **Analysis scope:** Gradle reports the main `runtimeClasspath` module graph. `compileOnly` / `compileOnlyApi`
 and local `files(...)` dependencies have no independent verdicts. When these declarations exist, the report
 records `INCOMPLETE` with a scope diagnostic, logs a warning, and `failOnUnused=true` fails even with valid
@@ -125,7 +131,7 @@ mvn verify -Ddak.enabled=true
 
 The probe does nothing unless `dak.enabled=true` is set. Surefire passes `-D` properties on to the forked test
 JVM. With the property set, every Spring context the tests start writes
-`target/dependency-analyze-kit/context-<pid>-<n>.json`. The `analyze` goal then prints a table and writes
+`target/dependency-analyze-kit/context-<pid>-<n>-<uuid>.json`. The `analyze` goal then prints a table and writes
 `target/dependency-analyze-kit/report.json`.
 
 Without `-Ddak.enabled=true` the goal still runs, but with bytecode evidence only. Everything else comes out
@@ -414,6 +420,44 @@ It needs Python 3 and Gradle 9.8.1 on the path (CI runs both Boot versions on Ja
 ```bash
 mvn install -DskipTests -Dinvoker.skip=true && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py gradle 3.5.16 && python3 dependency-analyze-kit-gradle-plugin/src/it/verify.py gradle 4.0.8
 ```
+
+The opt-in [real-project verifier](scripts/verify_real_projects.py) reads `MANIFEST.json` under
+`REAL_PROJECTS_DIR`. With that variable unset, or a project missing, it reports explicit unittest skips.
+It covers both petclinic builds, petclinic REST, the microservices reactor, the Boot 3.5 pin, and the
+manifest's Boot 2 control. It copies each checkout and dependency cache into a temporary directory.
+
+For example, after installing the current snapshot into an offline Maven repository:
+
+```powershell
+$env:REAL_PROJECTS_DIR = 'E:/rv/_real'
+$env:DAK_REPO_DIR = 'path/to/prepared/local-repository'
+python scripts/verify_real_projects.py
+```
+
+Requires Python 3.9+, installed Maven/Gradle (override with `DAK_MAVEN` / `DAK_GRADLE`), and the
+project dependencies and plugins already cached. Gradle copies the caches under `GRADLE_USER_HOME`
+(default `~/.gradle`). Builds use offline mode and isolated cache copies; wrappers are not invoked.
+The source checkouts must already match the manifest pins; the verifier does not run Git to attest them.
+External services or container runtimes required by a project's tests still need to be available.
+`DAK_REAL_TIMEOUT` sets each build's timeout in seconds (default 1800).
+Cache isolation and source fingerprints do not sandbox arbitrary build/test code; use an external sandbox
+for filesystem/network enforcement. Config-secret matching covers literal sensitive keys and URL credentials,
+not full YAML semantics, unresolved environment expressions, or secrets shorter than four characters.
+
+Checks include report determinism (excluding per-run context IDs/keys/timestamps), evidence paths,
+secret exclusion, independent removal/rebuild of **every** unused candidate, an added unused dependency,
+the documented failure policy (unused **or incomplete** analysis), and truncated/deleted runtime evidence.
+Precision failures print the dependency, module and escaped build-output tail. Missing offline artifacts or
+external services are failures, not successful validations. No real-project results have been observed yet.
+
+Security regression tests with `FINDING` comments are deliberately active and failing pending design fixes.
+Symlink attack tests require a host permitted to create symlinks. These tests and the verifier have not been run.
+Harness-only checks can be run separately with `python -m unittest discover -s scripts -p 'test_*.py'`;
+they launch no external builds. The real Gradle cases also check configuration-cache reuse, stale probe
+rejection, and whether a hostile output directory lets `dakClean` delete unrelated data inside the temp tree.
+Bounded readers reject class/probe files over 16 MiB, jars over 256 MiB, manifests over 1 MiB,
+more than 100,000 scan paths/jar entries, and JSON nesting deeper than 64. Unsupported/oversized inputs
+must fail clearly or make analysis incomplete; these limits have not been calibrated on the real projects.
 
 To try an unreleased snapshot of `main` in your own project, install it locally with
 `mvn install -DskipTests -Dinvoker.skip=true` and use version `0.2.0-SNAPSHOT`.

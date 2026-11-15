@@ -8,7 +8,6 @@ import io.github.sunjirapath.dak.core.Reports;
 import io.github.sunjirapath.dak.core.Verdict;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -68,6 +67,12 @@ public abstract class DakAnalyzeTask extends DefaultTask {
     @Internal
     public abstract SetProperty<ResolvedArtifactResult> getArtifacts();
 
+    @Internal
+    public abstract Property<BuildStartService> getBuildStartService();
+
+    @Input
+    public abstract Property<String> getBuildDirectory();
+
     /** Reported scope by {@code group:name} of the directly declared dependencies. */
     @Input
     public abstract MapProperty<String, String> getScopes();
@@ -89,11 +94,13 @@ public abstract class DakAnalyzeTask extends DefaultTask {
 
     @TaskAction
     public void analyze() {
+        long buildStart = getBuildStartService().get().getStartedAt();
         File report = getReportFile().get().getAsFile();
         try {
             Map<ComponentIdentifier, ArtifactId> ids = ids();
             Map<String, ArtifactId> locations = locations(ids);
-            List<ProbeReport> probes = probes(locations);
+            List<String> problems = new ArrayList<>(getAnalysisProblems().get());
+            List<ProbeReport> probes = probes(locations, problems, buildStart);
             Set<ArtifactId> modules = new HashSet<>();
             ids.forEach((component, id) -> {
                 if (component instanceof ProjectComponentIdentifier && id != ArtifactId.PROJECT) modules.add(id);
@@ -103,12 +110,12 @@ public abstract class DakAnalyzeTask extends DefaultTask {
             Set<ArtifactId> runtimeOnly = new HashSet<>();
             declared.forEach(d -> { if ("runtime".equals(scopes.get(d.id().toString()))) runtimeOnly.add(d.id()); });
             List<Classifier.Result> results = new Classifier(getIgnored().get(), getSideEffectStarters().get(), modules)
-                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes);
-            List<String> problems = getAnalysisProblems().get();
+                    .classify(declared, Classifier.owners(closures(ids), Set.of(), runtimeOnly), bytecode(ids), probes, problems);
             problems.forEach(problem -> getLogger().warn("Incomplete dependency analysis: " + problem));
             Reports.table(results).lines().forEach(line -> getLogger().lifecycle(line));
-            Files.createDirectories(report.toPath().getParent());
-            Files.writeString(report.toPath(), Reports.json(results, probes, problems));
+            OutputDirectory.validateForExecution(report.toPath().getParent(),
+                    Path.of(getBuildDirectory().get()), Path.of(getProjectDirectory().get()));
+            Reports.write(report.toPath(), Reports.json(results, probes, problems));
             getLogger().lifecycle("Dependency analysis report: " + report + " (" + probes.size() + " probe report(s))");
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
             if (getFailOnUnused().get() && !Reports.incompleteReasons(results, probes, problems).isEmpty()) {
@@ -212,15 +219,39 @@ public abstract class DakAnalyzeTask extends DefaultTask {
         return out;
     }
 
-    private List<ProbeReport> probes(Map<String, ArtifactId> locations) throws IOException {
+    private List<ProbeReport> probes(Map<String, ArtifactId> locations, List<String> problems, long buildStart) throws IOException {
         List<ProbeReport> out = new ArrayList<>();
+        int stale = 0;
         for (File file : getProbeReports().getFiles()) {
-            ProbeReport probe = ProbeReport.read(file.toPath(), locations::get);
+            long modified = file.lastModified();
+            if (modified < buildStart) {
+                stale++;
+                continue;
+            }
+            ProbeReport probe;
+            List<String> probeProblems = new ArrayList<>();
+            try {
+                probe = ProbeReport.read(file.toPath(), locations::get, probeProblems);
+            } catch (IOException e) {
+                problems.add("Invalid probe report; runtime evidence incomplete");
+                getLogger().warn("Invalid probe report; runtime evidence incomplete");
+                continue;
+            }
+            if (!ProbeFreshness.isFresh(modified, probe.capturedAt(), buildStart)) {
+                stale++;
+                continue;
+            }
+            problems.addAll(probeProblems);
             if (probe.belongsTo(Path.of(getProjectDirectory().get()))) {
                 out.add(probe);
             } else {
                 getLogger().warn("Skipping probe report with missing or foreign module identity: " + file);
             }
+        }
+        if (stale > 0) {
+            getLogger().warn("Skipped " + stale + " probe report(s) in " + getReportFile().get().getAsFile().getParent()
+                    + " from an earlier build; run the tests in the same Gradle invocation");
+            if (out.isEmpty()) problems.add("Only stale probe reports available");
         }
         return out;
     }

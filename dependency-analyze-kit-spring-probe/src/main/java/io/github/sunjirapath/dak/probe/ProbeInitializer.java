@@ -6,6 +6,7 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -34,7 +35,7 @@ import org.springframework.util.MultiValueMap;
 
 /**
  * Dumps the condition evaluation report and the bean graph of every refreshed context to
- * {@code ${dak.outputDirectory:target/dependency-analyze-kit}/context-<pid>-<n>.json}.
+ * {@code ${dak.outputDirectory:target/dependency-analyze-kit}/context-<pid>-<n>-<uuid>.json}.
  * Does nothing unless {@code -Ddak.enabled=true}. Never fails the user's tests.
  */
 public class ProbeInitializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
@@ -57,7 +58,7 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
                 try {
                     dump(context);
                 } catch (Exception | LinkageError e) {
-                    System.err.println("[dependency-analyze-kit] probe failed for context " + context.getId() + ": " + e);
+                    System.err.println("[dependency-analyze-kit] probe failed; runtime evidence unavailable");
                 }
             }
         });
@@ -128,9 +129,21 @@ public class ProbeInitializer implements ApplicationContextInitializer<Configura
         json.close(']').close('}');
 
         Path dir = Path.of(System.getProperty("dak.outputDirectory", "target/dependency-analyze-kit"));
+        Path tempRoot = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        for (Path p = dir.toAbsolutePath(); p != null; p = p.getParent()) {
+            // Trust platform ancestors of the JVM temp root (macOS /var is a symlink).
+            if (p.equals(tempRoot)) break;
+            if (Files.isSymbolicLink(p)) throw new java.io.IOException("Symbolic probe directory");
+        }
         Files.createDirectories(dir);
-        Files.writeString(dir.resolve("context-" + ProcessHandle.current().pid() + "-"
-                + COUNTER.incrementAndGet() + ".json"), json.toString());
+        Path temporary = Files.createTempFile(dir, ".dak-", ".tmp");
+        try {
+            Files.writeString(temporary, json.toString());
+            Files.move(temporary, dir.resolve("context-" + ProcessHandle.current().pid() + "-"
+                    + COUNTER.incrementAndGet() + "-" + UUID.randomUUID() + ".json"), StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     /** Full auto-configuration (not a test slice): every registered auto-configuration was considered. */

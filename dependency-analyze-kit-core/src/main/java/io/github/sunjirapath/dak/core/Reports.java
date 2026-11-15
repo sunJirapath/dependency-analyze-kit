@@ -3,6 +3,9 @@ package io.github.sunjirapath.dak.core;
 import com.fasterxml.jackson.jr.ob.JSON;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -19,13 +22,45 @@ public final class Reports {
         int dep = "DEPENDENCY".length();
         int verdict = "VERDICT".length();
         for (Classifier.Result r : results) {
-            dep = Math.max(dep, r.dependency().toString().length());
+            dep = Math.max(dep, console(r.dependency().toString()).length());
             verdict = Math.max(verdict, r.verdict().name().length());
         }
         String row = "%-" + dep + "s  %-" + verdict + "s  %s%n";
         StringBuilder sb = new StringBuilder(String.format(row, "DEPENDENCY", "VERDICT", "EVIDENCE"));
-        results.forEach(r -> sb.append(String.format(row, r.dependency(), r.verdict(), r.summary())));
+        results.forEach(r -> sb.append(String.format(row, console(r.dependency().toString()), r.verdict(), console(r.summary()))));
         return sb.toString();
+    }
+
+    private static String console(String value) {
+        StringBuilder out = new StringBuilder();
+        value.codePoints().forEach(c -> {
+            if (Character.isISOControl(c) || Character.getType(c) == Character.FORMAT || c == 0x2028 || c == 0x2029) {
+                out.append(String.format("\\u%04x", c));
+            } else {
+                out.appendCodePoint(c);
+            }
+        });
+        return out.toString().replace("::", "\\u003a\\u003a");
+    }
+
+    /** Publish complete reports without following a pre-existing destination symlink. */
+    public static void write(Path file, String json) throws IOException {
+        file = file.toAbsolutePath().normalize();
+        Path parent = file.getParent();
+        Path tempRoot = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
+        for (Path p = parent; p != null; p = p.getParent()) {
+            // Trust platform ancestors of the JVM temp root (macOS /var is a symlink).
+            if (p.equals(tempRoot)) break;
+            if (Files.isSymbolicLink(p)) throw new IOException("Symbolic report directory");
+        }
+        Files.createDirectories(parent);
+        Path temporary = Files.createTempFile(parent, ".dak-", ".tmp");
+        try {
+            Files.writeString(temporary, json);
+            Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     /** Legacy count-only callers cannot establish provenance, so their reports are incomplete. */

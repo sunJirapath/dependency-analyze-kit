@@ -1,9 +1,11 @@
 package io.github.sunjirapath.dak.core;
 
 import java.io.DataInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.LinkOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -12,7 +14,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.jar.JarFile;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 
@@ -20,7 +21,6 @@ import java.util.zip.ZipFile;
 public final class ClassReferenceScanner {
 
     private static final int CLASS_MAGIC = 0xCAFEBABE;
-    private static final Pattern DESCRIPTOR_TYPE = Pattern.compile("L([\\p{javaJavaIdentifierPart}/]+);");
 
     private ClassReferenceScanner() {}
 
@@ -28,11 +28,21 @@ public final class ClassReferenceScanner {
     public static Set<String> scan(Iterable<Path> roots) throws IOException {
         Set<String> references = new HashSet<>();
         for (Path root : roots) {
+            if (root != null && Files.isSymbolicLink(root)) throw new IOException("Symbolic scan root");
             if (root == null || !Files.isDirectory(root)) {
                 continue;
             }
             try (Stream<Path> files = Files.walk(root)) {
-                for (Path file : files.filter(p -> p.toString().endsWith(".class")).toList()) {
+                var paths = files.iterator();
+                int visited = 0;
+                while (paths.hasNext()) {
+                    Path file = paths.next();
+                    if (++visited > 100_000) throw new IOException("Class scan exceeds 100000 paths");
+                    if (Files.isSymbolicLink(file)) throw new IOException("Symbolic path in class output");
+                    if (!file.toString().endsWith(".class")) continue;
+                    if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+                        throw new IOException("Non-regular class file");
+                    }
                     references.addAll(scanClass(file));
                 }
             }
@@ -49,7 +59,23 @@ public final class ClassReferenceScanner {
             throws IOException {
         Map<String, List<ArtifactId>> holders = new HashMap<>();
         for (Map.Entry<ArtifactId, Path> e : jars.entrySet()) {
+            if (Files.size(e.getValue()) > 256L * 1024 * 1024) throw new IOException("Jar exceeds 256 MiB");
             try (JarFile jar = new JarFile(e.getValue().toFile(), true, ZipFile.OPEN_READ, Runtime.version())) {
+                if (jar.size() > 100_000) throw new IOException("Jar exceeds 100000 entries");
+                Set<String> names = new HashSet<>();
+                var entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    var entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!names.add(name) || name.startsWith("/") || name.contains("\\")
+                            || List.of(name.split("/")).contains("..")) {
+                        throw new IOException("Unsafe or duplicate jar entry name");
+                    }
+                    if (name.equalsIgnoreCase("META-INF/MANIFEST.MF")
+                            && (entry.getSize() < 0 || entry.getSize() > 1024 * 1024)) {
+                        throw new IOException("Jar manifest exceeds 1 MiB");
+                    }
+                }
                 for (String reference : references) {
                     if (jar.getJarEntry(reference.replace('.', '/') + ".class") != null) {
                         holders.computeIfAbsent(reference, k -> new ArrayList<>()).add(e.getKey());
@@ -81,15 +107,25 @@ public final class ClassReferenceScanner {
     }
 
     private static Set<String> scanClass(Path file) throws IOException {
-        try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
+        byte[] data;
+        try (var in = Files.newInputStream(file)) {
+            data = in.readNBytes(16 * 1024 * 1024 + 1);
+        }
+        if (data.length > 16 * 1024 * 1024) throw new IOException("Class exceeds 16 MiB");
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(data))) {
             if (in.readInt() != CLASS_MAGIC) {
                 throw new IOException("invalid class magic in " + file);
             }
             in.readUnsignedShort();
-            in.readUnsignedShort();
+            int major = in.readUnsignedShort();
+            if (major < 45 || major > Runtime.version().feature() + 44) {
+                throw new IOException("Unsupported class-file version");
+            }
             int count = in.readUnsignedShort();
+            if (count == 0) throw new IOException("Empty constant pool");
             String[] utf8 = new String[count];
             int[] classNames = new int[count];
+            java.util.Arrays.fill(classNames, -1);
             for (int i = 1; i < count; i++) {
                 switch (in.readUnsignedByte()) {
                     case 1 -> utf8[i] = in.readUTF();
@@ -107,14 +143,15 @@ public final class ClassReferenceScanner {
             }
             Set<String> references = new HashSet<>();
             for (int nameIndex : classNames) {
-                if (nameIndex < 0 || nameIndex >= utf8.length) {
+                if (nameIndex == -1) continue;
+                if (nameIndex <= 0 || nameIndex >= utf8.length || utf8[nameIndex] == null) {
                     throw new IOException("invalid constant-pool class index in " + file);
                 }
                 add(references, utf8[nameIndex]);
             }
             for (String value : utf8) {
                 if (value != null) {
-                    DESCRIPTOR_TYPE.matcher(value).results().map(m -> m.group(1)).forEach(n -> add(references, n));
+                    descriptorReferences(references, value);
                 }
             }
             return references;
@@ -124,6 +161,22 @@ public final class ClassReferenceScanner {
     private static void add(Set<String> references, String name) {
         if (name != null && !name.startsWith("[")) {
             references.add(name.replace('/', '.'));
+        }
+    }
+
+    private static void descriptorReferences(Set<String> references, String value) {
+        int start = -1;
+        for (int i = 0; i < value.length();) {
+            int c = value.codePointAt(i);
+            if (start >= 0 && c == ';') {
+                if (i > start) add(references, value.substring(start, i));
+                start = -1;
+            } else if (start < 0 && c == 'L') {
+                start = i + 1;
+            } else if (start >= 0 && c != '/' && !Character.isJavaIdentifierPart(c)) {
+                start = -1;
+            }
+            i += Character.charCount(c);
         }
     }
 

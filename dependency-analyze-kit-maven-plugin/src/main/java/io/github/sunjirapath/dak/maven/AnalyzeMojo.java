@@ -8,7 +8,6 @@ import io.github.sunjirapath.dak.core.Reports;
 import io.github.sunjirapath.dak.core.Verdict;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -111,15 +110,16 @@ public class AnalyzeMojo extends AbstractMojo {
                 if (p != project) modules.add(new ArtifactId(p.getGroupId(), p.getArtifactId()));
             }
             List<Classifier.Result> results = new Classifier(ignored, sideEffectStarters, modules)
-                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes);
+                    .classify(declared, Classifier.owners(closures(), scoped("test"), scoped("runtime")), bytecode(), probes,
+                            analysisProblems);
 
             Reports.table(results).lines().forEach(getLog()::info);
             // A reactor may use one absolute output directory; never overwrite another module's report.
             File reportDirectory = session.getAllProjects().size() > 1
-                    ? new File(new File(outputDirectory, project.getGroupId()), project.getArtifactId()) : outputDirectory;
-            Files.createDirectories(reportDirectory.toPath());
+                    ? moduleReportDirectory(outputDirectory.toPath(), project.getGroupId(), project.getArtifactId()).toFile()
+                    : outputDirectory;
             File report = new File(reportDirectory, "report.json");
-            Files.writeString(report.toPath(), Reports.json(results, probes, analysisProblems));
+            Reports.write(report.toPath(), Reports.json(results, probes, analysisProblems));
             getLog().info("Report: " + report + " (" + probes.size() + " probe report(s))");
 
             long unused = results.stream().filter(r -> r.verdict() == Verdict.UNUSED_CANDIDATE).count();
@@ -132,6 +132,14 @@ public class AnalyzeMojo extends AbstractMojo {
         } catch (IOException | ProjectDependencyAnalyzerException e) {
             throw new MojoExecutionException(e.getMessage(), e);
         }
+    }
+
+    static Path moduleReportDirectory(Path base, String group, String artifact) throws IOException {
+        for (String segment : List.of(group, artifact)) {
+            if (segment.equals(".") || segment.equals("..") || segment.contains("/") || segment.contains("\\")
+                    || segment.contains(":")) throw new IOException("Unsafe module report coordinate");
+        }
+        return base.resolve(group).resolve(artifact);
     }
 
     /** Artifacts referenced from project classes (main and test), with the referenced class names. */
@@ -151,7 +159,7 @@ public class AnalyzeMojo extends AbstractMojo {
         } catch (IOException e) {
             if (failOnUnused) throw e;
             analysisProblems.add("Annotation reference scan failed");
-            getLog().warn("Could not scan annotation type references: " + e.getMessage());
+            getLog().warn("Could not scan annotation type references; dependency analysis is incomplete");
         }
         return out;
     }
@@ -246,7 +254,14 @@ public class AnalyzeMojo extends AbstractMojo {
         int stale = 0;
         for (File f : files == null ? new File[0] : files) {
             if (f.lastModified() >= since) {
-                ProbeReport probe = ProbeReport.read(f.toPath(), locations::get);
+                ProbeReport probe;
+                try {
+                    probe = ProbeReport.read(f.toPath(), locations::get, analysisProblems);
+                } catch (IOException e) {
+                    analysisProblems.add("Invalid probe report; runtime evidence incomplete");
+                    getLog().warn("Invalid probe report; runtime evidence incomplete");
+                    continue;
+                }
                 if (probe.belongsTo(project.getBasedir().toPath())) {
                     if (probe.capturedAt() >= since) {
                         probes.add(probe);

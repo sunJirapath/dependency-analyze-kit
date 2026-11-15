@@ -13,12 +13,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.gradle.api.Action;
+import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.FileCollectionDependency;
+import org.gradle.api.file.Directory;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Delete;
 import org.gradle.api.tasks.Internal;
@@ -42,18 +44,37 @@ public final class DakPlugin implements Plugin<Project> {
         SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
         SourceSet main = sourceSets.getByName(SourceSet.MAIN_SOURCE_SET_NAME);
         SourceSet test = sourceSets.getByName(SourceSet.TEST_SOURCE_SET_NAME);
-        Provider<File> outputDirectory = project.provider(extension::getOutputDirectory);
-        project.getTasks().register("dakClean", Delete.class, task -> task.delete(outputDirectory));
-        TaskProvider<Delete> prepare = project.getTasks().register("dakPrepare", Delete.class, task ->
-                task.delete(project.fileTree(outputDirectory, tree -> tree.include("**/context-*.json"))));
+        File projectDirectory = project.getProjectDir();
+        Provider<File> buildDirectory = project.getLayout().getBuildDirectory().map(Directory::getAsFile);
+        Provider<File> outputDirectory = project.provider(extension::getOutputDirectory).zip(buildDirectory, (output, build) -> {
+            try {
+                return OutputDirectory.validateLexically(output.toPath(), build.toPath(), projectDirectory.toPath()).toFile();
+            } catch (IllegalArgumentException e) {
+                throw new GradleException("unsafe output directory " + output + "; build directory " + build, e);
+            }
+        });
+        Provider<BuildStartService> buildStart = project.getGradle().getSharedServices()
+                .registerIfAbsent("io.github.sunjirapath.dak.buildStart", BuildStartService.class, spec -> {});
+        Action<Task> validateOutputDirectory = ignored -> OutputDirectory.validateForExecution(
+                outputDirectory.get().toPath(), buildDirectory.get().toPath(), projectDirectory.toPath());
+        project.getTasks().register("dakClean", Delete.class, task -> {
+            task.delete(outputDirectory);
+            task.doFirst(validateOutputDirectory);
+        });
+        TaskProvider<Delete> prepare = project.getTasks().register("dakPrepare", Delete.class, task -> {
+            task.delete(project.fileTree(outputDirectory, tree -> tree.include("**/context-*.json")));
+            task.doFirst(validateOutputDirectory);
+        });
         // each Test task owns a subdirectory, so one task's run neither wipes nor stales another's probe reports
         project.getTasks().withType(Test.class).configureEach(task -> {
             task.dependsOn(prepare);
+            task.usesService(buildStart);
             // Reusing cached test outputs cannot prove that evidence belongs to this invocation.
             task.getOutputs().upToDateWhen(ignored -> false);
             task.getOutputs().doNotCacheIf("DAK requires current runtime evidence", ignored -> true);
             String name = task.getName();
-            ProbeDirectory probes = new ProbeDirectory(outputDirectory.map(dir -> new File(dir, name)));
+            ProbeDirectory probes = new ProbeDirectory(outputDirectory.map(dir -> new File(dir, name)),
+                    buildDirectory, projectDirectory, buildStart);
             task.getOutputs().dir(probes.getDirectory());
             task.systemProperty("dak.enabled", true);
             task.getJvmArgumentProviders().add(probes);
@@ -62,6 +83,9 @@ public final class DakPlugin implements Plugin<Project> {
         Configuration runtime = project.getConfigurations().getByName("runtimeClasspath");
         TaskProvider<DakAnalyzeTask> analyze = project.getTasks().register("dependencyAnalyzeKit", DakAnalyzeTask.class, task -> {
             task.dependsOn(prepare);
+            task.usesService(buildStart);
+            task.getBuildStartService().set(buildStart);
+            task.getBuildDirectory().set(buildDirectory.map(File::getAbsolutePath));
             task.getOutputs().upToDateWhen(ignored -> false);
             task.dependsOn(project.getTasks().withType(Test.class));
             task.getProjectClasses().from(main.getOutput().getClassesDirs(), test.getOutput().getClassesDirs());
@@ -113,8 +137,17 @@ public final class DakPlugin implements Plugin<Project> {
     /** Empties a Test task's probe directory before it runs and points the probe at it. */
     static final class ProbeDirectory implements Action<Task>, CommandLineArgumentProvider {
         private final Provider<File> directory;
+        private final Provider<File> buildDirectory;
+        private final File projectDirectory;
+        private final Provider<BuildStartService> buildStart;
 
-        ProbeDirectory(Provider<File> directory) { this.directory = directory; }
+        ProbeDirectory(Provider<File> directory, Provider<File> buildDirectory, File projectDirectory,
+                       Provider<BuildStartService> buildStart) {
+            this.directory = directory;
+            this.buildDirectory = buildDirectory;
+            this.projectDirectory = projectDirectory;
+            this.buildStart = buildStart;
+        }
 
         @Internal
         Provider<File> getDirectory() { return directory; }
@@ -126,7 +159,12 @@ public final class DakPlugin implements Plugin<Project> {
 
         @Override
         public void execute(Task task) {
+            buildStart.get();
             Path dir = directory.get().toPath();
+            Path build = buildDirectory.get().toPath();
+            Path project = projectDirectory.toPath();
+            OutputDirectory.validateForExecution(dir.getParent(), build, project);
+            dir = OutputDirectory.validateForExecution(dir, build, project);
             try {
                 if (Files.exists(dir)) {
                     try (Stream<Path> paths = Files.walk(dir)) {

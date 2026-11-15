@@ -13,7 +13,25 @@ public record ArtifactId(String groupId, String artifactId) {
 
     /** {@code pattern} is {@code groupId:artifactId}, where {@code *} matches any run of characters. */
     public boolean matches(String pattern) {
-        return toString().matches(("\\Q" + pattern.trim() + "\\E").replace("*", "\\E.*\\Q"));
+        String value = toString();
+        String glob = pattern.trim();
+        int v = 0, p = 0, star = -1, retry = 0;
+        while (v < value.length()) {
+            if (p < glob.length() && glob.charAt(p) != '*' && glob.charAt(p) == value.charAt(v)) {
+                p++;
+                v++;
+            } else if (p < glob.length() && glob.charAt(p) == '*') {
+                star = p++;
+                retry = v;
+            } else if (star >= 0) {
+                p = star + 1;
+                v = ++retry;
+            } else {
+                return false;
+            }
+        }
+        while (p < glob.length() && glob.charAt(p) == '*') p++;
+        return p == glob.length();
     }
 
     @Override

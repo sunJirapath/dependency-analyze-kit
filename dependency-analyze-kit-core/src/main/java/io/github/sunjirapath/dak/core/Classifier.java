@@ -185,7 +185,7 @@ public final class Classifier {
         if (colon <= 0 || colon != trimmed.lastIndexOf(':') || colon == trimmed.length() - 1
                 || trimmed.substring(0, colon).isBlank() || trimmed.substring(colon + 1).isBlank()) {
             throw new IllegalArgumentException(
-                    "'" + pattern + "' is not a groupId:artifactId pattern; bare artifact names never match");
+                    "Invalid groupId:artifactId pattern; bare artifact names never match");
         }
     }
 
@@ -271,6 +271,13 @@ public final class Classifier {
      */
     public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
                                  Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes) {
+        return classify(declared, owner, bytecode, probes, List.of());
+    }
+
+    /** Incomplete scans or probe sets cannot establish absence of usage. */
+    public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
+                                 Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes,
+                                 List<String> problems) {
         Map<ArtifactId, Set<Evidence>> found = new HashMap<>();
         bytecode.forEach((a, classes) -> credit(found, owner, Set.of(a), new Evidence(Kind.BYTECODE,
                 a + ": " + classes.stream().sorted().findFirst().orElse("?")
@@ -319,6 +326,10 @@ public final class Classifier {
                 summary = matched != null ? matchedButUnused(ev, d.id())
                         : unmatched != null ? unmatched.detail()
                         : "no bytecode reference, bean or auto-configuration";
+            }
+            if (verdict == Verdict.UNUSED_CANDIDATE && !problems.isEmpty()) {
+                verdict = Verdict.UNKNOWN;
+                summary = "incomplete dependency analysis; retain dependency";
             }
             if (verdict == Verdict.UNUSED_CANDIDATE || verdict == Verdict.UNKNOWN) {
                 String reason = ignoreReason(d.id());
@@ -372,6 +383,10 @@ public final class Classifier {
             }
         }
 
+        Comparator<BeanKey> rootOrder = Comparator.comparing(BeanKey::name)
+                .thenComparing(r -> beans.get(r).type(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(r -> probes.get(r.context()).contextKey(),
+                        Comparator.nullsFirst(Comparator.naturalOrder()));
         Map<BeanKey, BeanKey> reachedFrom = new LinkedHashMap<>();
         Deque<BeanKey> queue = new ArrayDeque<>();
         roots.forEach(r -> { reachedFrom.put(r, r); queue.add(r); });
@@ -380,22 +395,41 @@ public final class Classifier {
             ProbeReport.Bean bean = beans.get(key);
             for (String dep : bean.dependencies()) {
                 for (BeanKey dependency : resolveBeans(key.context(), dep, probes, contextsByKey, beans)) {
-                    if (reachedFrom.putIfAbsent(dependency, reachedFrom.get(key)) == null) {
+                    BeanKey root = reachedFrom.get(key);
+                    BeanKey previous = reachedFrom.get(dependency);
+                    // Propagate a smaller witness even if a shorter path reached this bean first.
+                    if (previous == null || rootOrder.compare(root, previous) < 0) {
+                        reachedFrom.put(dependency, root);
                         queue.add(dependency);
                     }
                 }
             }
         }
+        Map<BeanGroup, BeanKey> witnesses = new HashMap<>();
+        reachedFrom.forEach((key, root) -> {
+            if (!roots.contains(key)) {
+                BeanGroup group = new BeanGroup(key.name(), beans.get(key).type());
+                witnesses.merge(group, root, (a, b) -> rootOrder.compare(a, b) <= 0 ? a : b);
+            }
+        });
         reachedFrom.forEach((key, root) -> {
             ProbeReport.Bean bean = beans.get(key);
             if (!roots.contains(key)) {
+                BeanGroup group = new BeanGroup(key.name(), bean.type());
+                BeanKey witness = witnesses.get(group);
                 credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
-                        "bean '" + key.name() + "' (" + bean.type() + ") used by project bean '" + root.name() + "'"));
+                        "bean '" + group.name() + "' (" + bean.type() + ") used by project bean '" + witness.name() + "'"));
             }
         });
     }
 
     private record BeanKey(int context, String name) {}
+
+    private record BeanGroup(String name, String type) {
+        private BeanGroup {
+            name = name.replaceFirst("#[0-9]+$", "");
+        }
+    }
 
     /** Spring resolves a local bean before looking in its ancestors; unrelated contexts are never searched. */
     private static Set<BeanKey> resolveBeans(int context, String name, List<ProbeReport> probes,

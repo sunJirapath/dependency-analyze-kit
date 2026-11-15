@@ -1,6 +1,10 @@
 package io.github.sunjirapath.dak.core;
 
 import com.fasterxml.jackson.jr.ob.JSON;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,13 +41,73 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
      * keyed by {@link #location}, to its artifact, {@link ArtifactId#PROJECT} for the project's own output, or null when unknown.
      */
     public static ProbeReport read(Path file, Function<String, ArtifactId> locate) throws IOException {
-        Map<String, Object> m = JSON.std.mapFrom(Files.readString(file));
+        return read(file, locate, new java.util.ArrayList<>());
+    }
+
+    /** Preserve diagnostics across all contexts: another valid context cannot repair missing evidence. */
+    public static ProbeReport read(Path file, Function<String, ArtifactId> locate, List<String> problems) throws IOException {
+        if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Probe report must be a regular file");
+        }
+        byte[] data;
+        try (var in = Files.newInputStream(file)) {
+            data = in.readNBytes(16 * 1024 * 1024 + 1);
+        }
+        if (data.length > 16 * 1024 * 1024) throw new IOException("Probe report exceeds 16 MiB");
+        try {
+            JsonFactory factory = JsonFactory.builder().streamReadConstraints(StreamReadConstraints.builder()
+                    .maxNestingDepth(64).maxStringLength(1024 * 1024).maxNumberLength(20).build()).build();
+            try (JsonParser parser = factory.createParser(data)) {
+                parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+                if (parser.nextToken() != JsonToken.START_OBJECT) throw new IOException("Expected probe object");
+                int depth = 1;
+                while (depth > 0) {
+                    JsonToken token = parser.nextToken();
+                    if (token == null) throw new IOException("Truncated probe object");
+                    if (token.isStructStart()) depth++;
+                    if (token.isStructEnd()) depth--;
+                    if (token == JsonToken.VALUE_STRING) parser.getText();
+                }
+                if (parser.nextToken() != null) throw new IOException("Trailing probe data");
+            }
+            return decode(JSON.std.mapFrom(data), locate, problems);
+        } catch (RuntimeException | IOException e) {
+            // Parser exceptions can contain source excerpts, including credentials.
+            throw new IOException("Invalid probe report (JSON, schema or field types)");
+        }
+    }
+
+    private static ProbeReport decode(Map<String, Object> m, Function<String, ArtifactId> locate,
+                                      List<String> problems) throws IOException {
+        if (m.containsKey("schemaVersion") && !Integer.valueOf(1).equals(m.get("schemaVersion"))) {
+            throw new IOException("Unsupported probe schema");
+        }
+        Set<String> names = new LinkedHashSet<>();
+        boolean complete = m.get("autoConfigs") instanceof List && m.get("beans") instanceof List
+                && m.get("profiles") instanceof List && m.get("id") instanceof String id && !id.isBlank()
+                && m.get("capturedAt") instanceof Number time && time.longValue() > 0;
+        for (Map<String, Object> config : maps(m.get("autoConfigs"))) {
+            complete &= config.get("locations") instanceof List && config.get("messages") instanceof List
+                    && config.get("matched") instanceof Boolean;
+        }
+        for (Map<String, Object> bean : maps(m.get("beans"))) {
+            if (!(bean.get("name") instanceof String name) || !names.add(name)) {
+                throw new IOException("Missing or duplicate bean identity");
+            }
+            complete &= bean.get("locations") instanceof List && bean.get("dependencies") instanceof List;
+        }
+        if (Boolean.TRUE.equals(m.get("fullAutoConfig")) && !complete) {
+            problems.add("Incomplete full-context probe report");
+        }
+        if (m.get("capturedAt") instanceof Number captured && captured.longValue() > System.currentTimeMillis()) {
+            problems.add("Future probe capture timestamp");
+        }
         return new ProbeReport(
                 (String) m.get("id"),
-                Boolean.TRUE.equals(m.get("fullAutoConfig")),
+                Boolean.TRUE.equals(m.get("fullAutoConfig")) && complete,
                 strings(m.get("profiles")),
                 maps(m.get("autoConfigs")).stream()
-                        .map(a -> new AutoConfig((String) a.get("name"), Boolean.TRUE.equals(a.get("matched")),
+                        .map(a -> new AutoConfig(requiredString(a.get("name")), Boolean.TRUE.equals(a.get("matched")),
                                 artifacts(a.get("locations"), locate), strings(a.get("messages"))))
                         .toList(),
                 maps(m.get("beans")).stream()
@@ -57,9 +121,13 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
 
     /** Missing identity (including older probe versions) cannot establish which module produced evidence. */
     public boolean belongsTo(Path project) {
-        if (projectDirectory == null || projectDirectory.isBlank()) return false;
-        Path producer = Path.of(projectDirectory);
-        return producer.isAbsolute() && location(producer).equals(location(project));
+        if (projectDirectory == null || projectDirectory.isBlank() || capturedAt > System.currentTimeMillis()) return false;
+        try {
+            Path producer = Path.of(projectDirectory);
+            return producer.isAbsolute() && location(producer).equals(location(project));
+        } catch (java.nio.file.InvalidPathException e) {
+            return false;
+        }
     }
 
     /**
@@ -86,7 +154,15 @@ public record ProbeReport(String id, boolean fullAutoConfig, List<String> profil
 
     @SuppressWarnings("unchecked")
     private static List<String> strings(Object o) {
-        return o == null ? List.of() : (List<String>) o;
+        if (o == null) return List.of();
+        List<?> values = (List<?>) o;
+        values.forEach(ProbeReport::requiredString);
+        return (List<String>) values;
+    }
+
+    private static String requiredString(Object value) {
+        if (!(value instanceof String s)) throw new IllegalArgumentException("Expected string");
+        return s;
     }
 
     @SuppressWarnings("unchecked")
