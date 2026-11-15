@@ -6,9 +6,9 @@ on:
   pull_request:
 
 jobs:
-  # Owner-only PR gate: skip PRs not authored by the repo owner or coming from forks.
+  # Owner-only gate: run only when the repo owner triggers it; PRs must also be owner-authored and not from forks.
   verify:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.triggering_actor == github.repository_owner && (github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +54,7 @@ jobs:
 
   # Runs the Gradle plugin and probe built from this commit against a multi-project Spring Boot build.
   gradle-it:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.triggering_actor == github.repository_owner && (github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +89,7 @@ jobs:
 
   # Builds sources and javadoc jars the way a release does, without signing or uploading.
   release-dry-run:
-    if: github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.triggering_actor == github.repository_owner && (github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","pc-builder"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
