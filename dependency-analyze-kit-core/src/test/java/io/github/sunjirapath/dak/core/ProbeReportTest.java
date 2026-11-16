@@ -70,4 +70,26 @@ class ProbeReportTest {
             return false;
         }
     }
+
+    @Test
+    void optionalSideEffectAndUnmappedLocationsPreserveFullContext(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("context.json");
+        Files.writeString(file, """
+                {"id":"app","capturedAt":1,"fullAutoConfig":true,"profiles":[],"autoConfigs":[],
+                 "beans":[{"name":"runner","type":"example.Runner","locations":["/known","/unknown"],
+                           "dependencies":[],"sideEffect":true},
+                          {"name":"legacy","type":"example.Legacy","locations":["/known"],"dependencies":[]}]}
+                """);
+        ArtifactId lib = new ArtifactId("example", "lib");
+        var problems = new java.util.ArrayList<String>();
+        ProbeReport report = ProbeReport.read(file, location -> location.equals("/known") ? lib : null, problems);
+        assertTrue(report.fullAutoConfig());
+        assertTrue(problems.isEmpty());
+        assertTrue(report.beans().get(0).sideEffect());
+        assertEquals(Set.of(lib), report.beans().get(0).artifacts());
+        assertEquals(Set.of("/unknown"), report.beans().get(0).unmappedLocations());
+        assertFalse(report.beans().get(1).sideEffect());
+        assertEquals(Set.of(lib), report.beans().get(1).artifacts());
+        assertTrue(report.beans().get(1).unmappedLocations().isEmpty());
+    }
 }

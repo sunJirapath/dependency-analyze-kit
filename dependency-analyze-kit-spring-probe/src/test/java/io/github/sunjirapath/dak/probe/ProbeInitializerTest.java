@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
@@ -29,6 +30,10 @@ class ProbeInitializerTest {
     }
 
     private static String capture(Path dir, String includeMessages) throws Exception {
+        return capture(dir, includeMessages, context -> {});
+    }
+
+    private static String capture(Path dir, String includeMessages, Consumer<GenericApplicationContext> beans) throws Exception {
         String enabled = System.getProperty("dak.enabled");
         String output = System.getProperty("dak.outputDirectory");
         String messages = System.getProperty("dak.includeConditionMessages");
@@ -37,6 +42,7 @@ class ProbeInitializerTest {
             System.setProperty("dak.outputDirectory", dir.toString());
             restore("dak.includeConditionMessages", includeMessages);
             try (GenericApplicationContext context = new GenericApplicationContext()) {
+                beans.accept(context);
                 ConditionEvaluationReport.get(context.getBeanFactory()).recordConditionEvaluation(
                         "demo.SecretAutoConfiguration", new SecretCondition(),
                         ConditionOutcome.noMatch("credential=secret-token-123"));
@@ -64,5 +70,45 @@ class ProbeInitializerTest {
         public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
             return false;
         }
+    }
+
+    @Test
+    void runnersAndListenersAreMarkedButFrameworkAndLifecycleBeansAreNot(@TempDir Path dir) throws Exception {
+        String json = capture(dir, null, context -> {
+            context.registerBean("runner", InheritedRunner.class);
+            context.registerBean("applicationRunner", StartupRunner.class);
+            context.registerBean("listener", StartupListener.class);
+            context.registerBean("lifecycle", ConnectionLifecycle.class);
+            context.registerBean("frameworkListener", org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor.class);
+        });
+        for (String name : new String[]{"runner", "applicationRunner", "listener"}) {
+            assertTrue(beanJson(json, name).contains("\"sideEffect\":true"), json);
+        }
+        for (String name : new String[]{"lifecycle", "frameworkListener"}) {
+            assertFalse(beanJson(json, name).contains("\"sideEffect\""), json);
+        }
+    }
+
+    private static String beanJson(String json, String name) {
+        int start = json.indexOf("\"name\":\"" + name + "\"");
+        assertTrue(start >= 0, json);
+        return json.substring(start, json.indexOf('}', start));
+    }
+
+    interface RunnerContract extends org.springframework.boot.CommandLineRunner {}
+    static class RunnerBase implements RunnerContract {
+        @Override public void run(String... args) {}
+    }
+    static class InheritedRunner extends RunnerBase {}
+    static class StartupRunner implements org.springframework.boot.ApplicationRunner {
+        @Override public void run(org.springframework.boot.ApplicationArguments args) {}
+    }
+    static class StartupListener implements org.springframework.context.ApplicationListener<org.springframework.context.ApplicationEvent> {
+        @Override public void onApplicationEvent(org.springframework.context.ApplicationEvent event) {}
+    }
+    static class ConnectionLifecycle implements org.springframework.context.SmartLifecycle {
+        @Override public void start() {}
+        @Override public void stop() {}
+        @Override public boolean isRunning() { return false; }
     }
 }

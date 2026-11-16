@@ -185,7 +185,7 @@ public final class Classifier {
         if (colon <= 0 || colon != trimmed.lastIndexOf(':') || colon == trimmed.length() - 1
                 || trimmed.substring(0, colon).isBlank() || trimmed.substring(colon + 1).isBlank()) {
             throw new IllegalArgumentException(
-                    "'" + pattern + "' is not a groupId:artifactId pattern; bare artifact names never match");
+                    "Invalid groupId:artifactId pattern; bare artifact names never match");
         }
     }
 
@@ -271,6 +271,21 @@ public final class Classifier {
      */
     public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
                                  Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes) {
+        return classify(declared, owner, bytecode, probes, List.of());
+    }
+
+    /** Incomplete scans or probe sets cannot establish absence of usage. */
+    public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
+                                 Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes,
+                                 List<String> problems) {
+        return classify(declared, owner, bytecode, probes, problems, Map.of());
+    }
+
+    /** Dynamic registrations belong to the declared jar itself, never its transitive closure. */
+    public List<Result> classify(List<Declared> declared, Map<ArtifactId, ArtifactId> owner,
+                                 Map<ArtifactId, ? extends Collection<String>> bytecode, List<ProbeReport> probes,
+                                 List<String> problems, Map<ArtifactId, String> dynamicRegistrations) {
+        List<String> analysisProblems = new ArrayList<>(problems);
         Map<ArtifactId, Set<Evidence>> found = new HashMap<>();
         bytecode.forEach((a, classes) -> credit(found, owner, Set.of(a), new Evidence(Kind.BYTECODE,
                 a + ": " + classes.stream().sorted().findFirst().orElse("?")
@@ -286,7 +301,7 @@ public final class Classifier {
                                 ac.name() + " did not match: " + String.join("; ", ac.messages())));
             }
         }
-        beanEvidence(probes, found, owner, modules);
+        analysisProblems.addAll(beanEvidence(probes, found, owner, modules));
 
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
@@ -320,6 +335,22 @@ public final class Classifier {
                         : unmatched != null ? unmatched.detail()
                         : "no bytecode reference, bean or auto-configuration";
             }
+            if (verdict == Verdict.UNUSED_CANDIDATE && !analysisProblems.isEmpty()) {
+                verdict = Verdict.UNKNOWN;
+                summary = "incomplete dependency analysis; retain dependency";
+            }
+            String registration = dynamicRegistrations.get(d.id());
+            boolean springOnly = DynamicRegistrations.FACTORIES.equals(registration)
+                    || DynamicRegistrations.IMPORTS.equals(registration);
+            if (verdict == Verdict.UNUSED_CANDIDATE && registration != null
+                    && !(springOnly && (matched != null || unmatched != null))) {
+                verdict = Verdict.UNKNOWN;
+                summary = "ships dynamic-loading registrations (" + registration + "); retain dependency";
+            }
+            if (verdict == Verdict.UNUSED_CANDIDATE && ("test".equals(d.scope()) || "provided".equals(d.scope()))) {
+                verdict = Verdict.UNKNOWN;
+                summary = d.scope() + " scope: probe evidence cannot show it is unused; retain dependency";
+            }
             if (verdict == Verdict.UNUSED_CANDIDATE || verdict == Verdict.UNKNOWN) {
                 String reason = ignoreReason(d.id());
                 if (reason != null) {
@@ -334,8 +365,9 @@ public final class Classifier {
     }
 
     /** Credits beans reachable from a project bean through injection / depends-on edges. */
-    private static void beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
+    private static List<String> beanEvidence(List<ProbeReport> probes, Map<ArtifactId, Set<Evidence>> found,
                                      Map<ArtifactId, ArtifactId> owner, Set<ArtifactId> modules) {
+        Set<String> problems = new LinkedHashSet<>();
         Map<String, List<Integer>> contextsByKey = new HashMap<>();
         Map<BeanKey, ProbeReport.Bean> beans = new LinkedHashMap<>();
         for (int i = 0; i < probes.size(); i++) {
@@ -349,6 +381,10 @@ public final class Classifier {
         Set<BeanKey> roots = new LinkedHashSet<>();
         Map<BeanKey, List<BeanKey>> products = new HashMap<>();
         beans.forEach((key, bean) -> {
+            if (bean.sideEffect()) {
+                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
+                        "side-effect bean '" + bean.name() + "' (" + bean.type() + ") runs at startup"));
+            }
             if (bean.artifacts().contains(ArtifactId.PROJECT)) {
                 roots.add(key);
             } else if (bean.artifacts().stream().anyMatch(modules::contains)) {
@@ -372,6 +408,10 @@ public final class Classifier {
             }
         }
 
+        Comparator<BeanKey> rootOrder = Comparator.comparing(BeanKey::name)
+                .thenComparing(r -> beans.get(r).type(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(r -> probes.get(r.context()).contextKey(),
+                        Comparator.nullsFirst(Comparator.naturalOrder()));
         Map<BeanKey, BeanKey> reachedFrom = new LinkedHashMap<>();
         Deque<BeanKey> queue = new ArrayDeque<>();
         roots.forEach(r -> { reachedFrom.put(r, r); queue.add(r); });
@@ -380,22 +420,46 @@ public final class Classifier {
             ProbeReport.Bean bean = beans.get(key);
             for (String dep : bean.dependencies()) {
                 for (BeanKey dependency : resolveBeans(key.context(), dep, probes, contextsByKey, beans)) {
-                    if (reachedFrom.putIfAbsent(dependency, reachedFrom.get(key)) == null) {
+                    BeanKey root = reachedFrom.get(key);
+                    BeanKey previous = reachedFrom.get(dependency);
+                    // Propagate a smaller witness even if a shorter path reached this bean first.
+                    if (previous == null || rootOrder.compare(root, previous) < 0) {
+                        reachedFrom.put(dependency, root);
                         queue.add(dependency);
                     }
                 }
             }
         }
+        Map<BeanGroup, BeanKey> witnesses = new HashMap<>();
         reachedFrom.forEach((key, root) -> {
-            ProbeReport.Bean bean = beans.get(key);
             if (!roots.contains(key)) {
-                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
-                        "bean '" + key.name() + "' (" + bean.type() + ") used by project bean '" + root.name() + "'"));
+                BeanGroup group = new BeanGroup(key.name(), beans.get(key).type());
+                witnesses.merge(group, root, (a, b) -> rootOrder.compare(a, b) <= 0 ? a : b);
             }
         });
+        reachedFrom.forEach((key, root) -> {
+            ProbeReport.Bean bean = beans.get(key);
+            if (!bean.unmappedLocations().isEmpty() && (!roots.contains(key)
+                    || bean.artifacts().stream().anyMatch(modules::contains) || bean.factoryBean() != null)) {
+                problems.add("reached bean '" + bean.name() + "' loaded from an unresolved location; retain dependencies");
+            }
+            if (!roots.contains(key)) {
+                BeanGroup group = new BeanGroup(key.name(), bean.type());
+                BeanKey witness = witnesses.get(group);
+                credit(found, owner, bean.artifacts(), new Evidence(Kind.BEAN,
+                        "bean '" + group.name() + "' (" + bean.type() + ") used by project bean '" + witness.name() + "'"));
+            }
+        });
+        return List.copyOf(problems);
     }
 
     private record BeanKey(int context, String name) {}
+
+    private record BeanGroup(String name, String type) {
+        private BeanGroup {
+            name = name.replaceFirst("#[0-9]+$", "");
+        }
+    }
 
     /** Spring resolves a local bean before looking in its ancestors; unrelated contexts are never searched. */
     private static Set<BeanKey> resolveBeans(int context, String name, List<ProbeReport> probes,

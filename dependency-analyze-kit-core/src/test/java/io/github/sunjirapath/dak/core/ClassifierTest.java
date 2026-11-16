@@ -658,6 +658,94 @@ class ClassifierTest {
         return byId(classifier.classify(DECLARED, OWNERS, bytecode, List.of(probes)));
     }
 
+    @Test
+    void evaluatedSpringRegistrationsKeepUnusedButServicesAndUnreadableJarsRetain() {
+        for (boolean matched : List.of(true, false)) {
+            var probe = new ProbeReport("app", true, List.of(), List.of(ac("example.Config", matched, LANG3)), List.of());
+            for (String reason : List.of("spring.factories", "spring/*.imports", "META-INF/services", "jar unreadable")) {
+                Result result = classifier.classify(DECLARED, OWNERS, Map.of(), List.of(probe), List.of(),
+                        Map.of(LANG3, reason)).stream().filter(r -> r.dependency().equals(LANG3)).findFirst().orElseThrow();
+                assertEquals(reason.startsWith("spring") ? Verdict.UNUSED_CANDIDATE : Verdict.UNKNOWN,
+                        result.verdict(), reason + " matched=" + matched);
+            }
+        }
+    }
+
+    @Test
+    void dynamicRegistrationsDoNotCreditOwnersAndIgnoreStillWins() {
+        var probe = new ProbeReport("app", true, List.of(), List.of(), List.of());
+        var results = byId(classifier.classify(DECLARED, OWNERS, Map.of(), List.of(probe), List.of(),
+                Map.of(DATA_REDIS, "META-INF/services", H2, "META-INF/services")));
+        assertEquals(Verdict.UNUSED_CANDIDATE, results.get(REDIS).verdict());
+        assertEquals(Verdict.IGNORED, results.get(H2).verdict());
+        Result retained = byId(classifier.classify(DECLARED, OWNERS, Map.of(), List.of(probe), List.of(),
+                Map.of(LANG3, "META-INF/services"))).get(LANG3);
+        assertEquals(Verdict.UNKNOWN, retained.verdict());
+        assertEquals("ships dynamic-loading registrations (META-INF/services); retain dependency", retained.summary());
+    }
+
+    @Test
+    void testAndProvidedScopesRetainButRuntimeStaysReportableAndUsageStillWins() {
+        var probe = new ProbeReport("app", true, List.of(), List.of(), List.of());
+        for (String scope : List.of("test", "provided", "runtime")) {
+            var declared = List.of(new Declared(LANG3, scope));
+            Result result = classifier.classify(declared, OWNERS, Map.of(), List.of(probe)).get(0);
+            assertEquals(scope.equals("runtime") ? Verdict.UNUSED_CANDIDATE : Verdict.UNKNOWN, result.verdict());
+            if (!scope.equals("runtime")) assertEquals(scope
+                    + " scope: probe evidence cannot show it is unused; retain dependency", result.summary());
+            assertEquals(Verdict.USED_BYTECODE, classifier.classify(declared, OWNERS,
+                    Map.of(LANG3, Set.of("example.Used")), List.of(probe)).get(0).verdict());
+            assertEquals(Verdict.IGNORED, new Classifier(List.of(LANG3.toString()), List.of())
+                    .classify(declared, OWNERS, Map.of(), List.of(probe)).get(0).verdict());
+        }
+    }
+
+    @Test
+    void sideEffectBeanCreditsItsOwnerWithoutAProjectConsumer() {
+        var probe = new ProbeReport("app", true, List.of(), List.of(), List.of(
+                new ProbeReport.Bean("listener", "example.Listener", Set.of(DATA_REDIS), null, List.of(), true)));
+        Result result = run(Map.of(), probe).get(REDIS);
+        assertEquals(Verdict.USED_BEAN, result.verdict());
+        assertEquals("side-effect bean 'listener' (example.Listener) runs at startup", result.summary());
+    }
+
+    @Test
+    void unreachedUnmappedBeanDoesNotDowngrade() {
+        var probe = context("app", null, List.of(bean("app", "demo.App", null, List.of(), ArtifactId.PROJECT),
+                new ProbeReport.Bean("foreign", "example.Foreign", Set.of(), null, List.of(), Set.of("/foreign.jar"), false)));
+        assertEquals(Verdict.UNUSED_CANDIDATE, run(Map.of(), probe).get(LANG3).verdict());
+    }
+
+    @Test
+    void reachedUnmappedBeanDowngradesWithoutMutatingCallerProblems() {
+        var probe = context("app", null, List.of(bean("app", "demo.App", null, List.of("foreign"), ArtifactId.PROJECT),
+                new ProbeReport.Bean("foreign", "example.Foreign", Set.of(), null, List.of(), Set.of("/foreign.jar"), false)));
+        List<String> problems = new java.util.ArrayList<>();
+        Result result = byId(classifier.classify(DECLARED, OWNERS, Map.of(), List.of(probe), problems)).get(LANG3);
+        assertEquals(Verdict.UNKNOWN, result.verdict());
+        assertEquals("incomplete dependency analysis; retain dependency", result.summary());
+        assertTrue(problems.isEmpty());
+    }
+
+    @Test
+    void mappedProjectRootDoesNotDowngrade() {
+        var probe = context("app", null, List.of(bean("app", "demo.App", null, List.of(), ArtifactId.PROJECT)));
+        assertEquals(Verdict.UNUSED_CANDIDATE, run(Map.of(), probe).get(LANG3).verdict());
+    }
+
+    @Test
+    void unresolvedModuleAndFactoryRootsDowngrade() {
+        var moduleRoot = new ProbeReport.Bean("module", "example.Module", Set.of(DATA_REDIS), null, List.of(),
+                Set.of("/foreign.jar"), false);
+        var moduleProbe = context("module", null, List.of(moduleRoot));
+        Result moduleResult = byId(new Classifier(List.of(), List.of(), Set.of(DATA_REDIS))
+                .classify(DECLARED, OWNERS, Map.of(), List.of(moduleProbe))).get(LANG3);
+        assertEquals(Verdict.UNKNOWN, moduleResult.verdict());
+        var factoryProbe = context("factory", null, List.of(bean("config", "demo.Config", null, List.of(), ArtifactId.PROJECT),
+                new ProbeReport.Bean("product", "example.Product", Set.of(), "config", List.of(), Set.of("/foreign.jar"), false)));
+        assertEquals(Verdict.UNKNOWN, run(Map.of(), factoryProbe).get(LANG3).verdict());
+    }
+
     private static Map<ArtifactId, Result> byId(List<Result> results) {
         return results.stream().collect(java.util.stream.Collectors.toMap(Result::dependency, r -> r));
     }
