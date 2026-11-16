@@ -383,7 +383,10 @@ class RealProject(unittest.TestCase):
             unchanged[module]["dependencies"] = [d for d in unchanged[module]["dependencies"] if d["dependency"] != UNUSED]
             require(self.canonical(baseline) == self.canonical(unchanged), "Adding unused library changed unrelated verdicts/evidence")
             code, tail = self.run_build("fail-on-unused", fail=True, module=module)
-            require(code != 0 and "unused dependency candidate" in tail.lower(),
+            # An INCOMPLETE analysis (for example UNKNOWN verdicts from ServiceLoader registrations) is refused first.
+            incomplete = reports[module].get("analysis", {}).get("status") == "INCOMPLETE"
+            expected = "incomplete dependency analysis" if incomplete else "unused dependency candidate"
+            require(code != 0 and expected in tail.lower(),
                     json.dumps({"step": "failOnUnused", "tail": tail}))
         finally:
             build.write_bytes(original)
