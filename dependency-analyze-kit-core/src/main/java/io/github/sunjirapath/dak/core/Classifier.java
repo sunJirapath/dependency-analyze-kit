@@ -306,7 +306,9 @@ public final class Classifier {
         boolean full = probes.stream().anyMatch(ProbeReport::fullAutoConfig);
         List<Result> results = new ArrayList<>();
         for (Declared d : declared) {
+            // Canonical order: the summary picks the first evidence of a kind, so it must not depend on input order.
             List<Evidence> ev = new ArrayList<>(found.getOrDefault(d.id(), Set.of()));
+            ev.sort(Comparator.comparing((Evidence e) -> e.kind().name()).thenComparing(Evidence::detail));
             Evidence bytecodeEv = first(ev, Kind.BYTECODE);
             Evidence beanEv = first(ev, Kind.BEAN);
             Evidence matched = first(ev, Kind.AUTOCONFIG_MATCHED);
